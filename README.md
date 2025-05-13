@@ -43,7 +43,7 @@ The project is organized into the following directories:
 Clone the repository:
 
 ```bash
-git clone https://github.com/your-repo/C2TCFramework.git
+git clone https://github.com/marcopettorali/C2TCFramework
 cd C2TCFramework
 pip install -r requirements.txt
 ```
