@@ -1,0 +1,46 @@
+[
+    {
+        "name": "app0",
+        "ram_occupancy_gb": 2,
+        "benchmark": {
+            "cpu_ghz": 19.2,
+            "distribution": {
+                "type": "file",
+                "data": "datasets/benchmark/app0.json"
+            }
+        }
+    },
+    {
+        "name": "app14",
+        "ram_occupancy_gb": 8,
+        "benchmark": {
+            "cpu_ghz": 19.2,
+            "distribution": {
+                "type": "file",
+                "data": "datasets/benchmark/app14.json"
+            }
+        }
+    },
+    {
+        "name": "app0_lowramusage",
+        "ram_occupancy_gb": 0.1,
+        "benchmark": {
+            "cpu_ghz": 19.2,
+            "distribution": {
+                "type": "file",
+                "data": "datasets/benchmark/app0.json"
+            }
+        }
+    },
+    {
+        "name": "app14_lowramusage",
+        "ram_occupancy_gb": 0.1,
+        "benchmark": {
+            "cpu_ghz": 19.2,
+            "distribution": {
+                "type": "file",
+                "data": "datasets/benchmark/app14.json"
+            }
+        }
+    }
+]

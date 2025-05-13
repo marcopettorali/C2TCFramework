@@ -1,0 +1,59 @@
+{
+    "environment": "environments/env2.json",
+    "deployment": "deployments/env2.json",
+
+    "applications_import": "apps.json",
+
+    "processes_array": {
+        "name": [ "P0", "P1", "P2", "P3", "P4", "P5", "P6", "P7" ],
+        "application": [ "app0_lowramusage", "app0_lowramusage", "app0_lowramusage", "app0_lowramusage", "app0_lowramusage", "app0_lowramusage", "app14_lowramusage", "app14_lowramusage" ],
+        "mns": [ 1, 4, 6, 12, 13, 13, 13, 13 ],
+        "max_delay_ms": [ 50, 50, 75, 75, 100, 100, 500, 500 ],
+        "min_reliability": [ 0.99, 0.95, 0.99, 0.95, 0.99, 0.95, 0.95, 0.95 ],
+        "aoi": [
+            { "type": "circle", "data": [ [ 30, 25 ], 40 ] },
+            { "type": "circle", "data": [ [ 75, 75 ], 40 ] },
+            { "type": "circle", "data": [ [ 40, 80 ], 30 ] },
+            { "type": "circle", "data": [ [ 125, 10 ], 40 ] },
+            { "type": "circle", "data": [ [ 50, 125 ], 40 ] },
+            { "type": "circle", "data": [ [ 80, 125 ], 35 ] },
+            { "type": "circle", "data": [ [ 75, 50 ], 30 ] },
+            { "type": "circle", "data": [ [ 10, 60 ], 50 ] }
+        ]
+    },
+
+    "topology": {
+        "agents": {
+            "P0": { "type": "process" },
+            "P1": { "type": "process" },
+            "P2": { "type": "process" },
+            "P3": { "type": "process" },
+            "P4": { "type": "process" },
+            "P5": { "type": "process" },
+            "P6": { "type": "process" },
+            "P7": { "type": "process" },
+            "BR0": { "type": "host", "cpu_ghz": 0, "ram_gb": 8, "infinite_parallelism": false, "qtime_dist_function": "resourceallocation.tsch.sddu_qtime.qtime(g=4)" },
+            "BR1": { "type": "host", "cpu_ghz": 0, "ram_gb": 8, "infinite_parallelism": false, "qtime_dist_function": "resourceallocation.tsch.sddu_qtime.qtime(g=4)" },
+            "BR2": { "type": "host", "cpu_ghz": 0, "ram_gb": 8, "infinite_parallelism": false, "qtime_dist_function": "resourceallocation.tsch.sddu_qtime.qtime(g=4)" },
+            "BR3": { "type": "host", "cpu_ghz": 0, "ram_gb": 8, "infinite_parallelism": false, "qtime_dist_function": "resourceallocation.tsch.sddu_qtime.qtime(g=4)" },
+            "BR4": { "type": "host", "cpu_ghz": 0, "ram_gb": 8, "infinite_parallelism": false, "qtime_dist_function": "resourceallocation.tsch.sddu_qtime.qtime(g=4)" },
+            "GW": { "type": "router" },
+            "FN": { "type": "host", "cpu_ghz": 15, "ram_gb": 32, "infinite_parallelism": false, "qtime_dist_function": "resourceallocation.tsch.sddu_qtime.qtime(g=4)" },
+            "CN": { "type": "host", "cpu_ghz": 19.2, "ram_gb": "inf", "infinite_parallelism": true, "qtime_dist_function": "resourceallocation.tsch.sddu_qtime.qtime(g=4)" }
+        },
+
+        "link_classes": {
+            "TSCH": { "type": "constant", "data": 2.7 },
+            "BB": { "type": "file", "data": "datasets/ethernet/experiment.json" },
+            "FL": { "type": "file", "data": "datasets/cloud/nach_20_x02.json" },
+            "CL": { "type": "file", "data": "datasets/cloud/nach_20.json" }
+        },
+
+        "network": [
+            { "type": "wireless_unidir", "link_class": "TSCH", "data": { "set_a": [ "P0", "P1", "P2", "P3", "P4", "P5", "P6", "P7" ], "set_b": [ "BR0", "BR1", "BR2", "BR3", "BR4" ], "prob_matrix": "resourceallocation.compute_brcoverage_matrix.compute_brcoverage_matrix(channel_model='mobile6tisch-3.json')" } },
+            { "type": "star_bidir", "link_class": "BB", "data": { "center": "GW", "set": [ "BR0", "BR1", "BR2", "BR3", "BR4" ] } },
+            { "type": "direct_unidir", "link_class": "FL", "data": [ "GW", "FN" ] },
+            { "type": "direct_unidir", "link_class": "CL", "data": [ "GW", "CN" ] }
+        ]
+    }
+}
