@@ -1,0 +1,91 @@
+[
+    
+    {
+        "name": "A0",
+        "ram_occupancy_gb": 0.1,
+        "benchmark": {
+            "cpu_ghz": 1,
+            "distribution": {
+                "type": "constant",
+                "data": "100"
+            }
+        }
+    },
+    {
+        "name": "A1",
+        "ram_occupancy_gb": 0.1,
+        "benchmark": {
+            "cpu_ghz": 1,
+            "distribution": {
+                "type": "constant",
+                "data": "250"
+            }
+        }
+    },
+    {
+        "name": "A2",
+        "ram_occupancy_gb": 0.1,
+        "benchmark": {
+            "cpu_ghz": 1,
+            "distribution": {
+                "type": "constant",
+                "data": "500"
+            }
+        }
+    },
+    {
+        "name": "A3",
+        "ram_occupancy_gb": 0.1,
+        "benchmark": {
+            "cpu_ghz": 1,
+            "distribution": {
+                "type": "constant",
+                "data": "750"
+            }
+        }
+    },
+    {
+        "name": "A4",
+        "ram_occupancy_gb": 0.1,
+        "benchmark": {
+            "cpu_ghz": 1,
+            "distribution": {
+                "type": "constant",
+                "data": "1000"
+            }
+        }
+    },
+    {
+        "name": "A5",
+        "ram_occupancy_gb": 0.1,
+        "benchmark": {
+            "cpu_ghz": 1,
+            "distribution": {
+                "type": "constant",
+                "data": "2000"
+            }
+        }
+    },
+    {
+        "name": "A6",
+        "ram_occupancy_gb": 0.1,
+        "benchmark": {
+            "cpu_ghz": 1,
+            "distribution": {
+                "type": "constant",
+                "data": "3000"
+            }
+        }
+    },
+    {
+        "name": "A7",
+        "ram_occupancy_gb": 0.1,
+        "benchmark": {
+            "cpu_ghz": 1,
+            "distribution": {
+                "type": "constant",
+                "data": "4000"
+            }
+        }
+    }
+]
