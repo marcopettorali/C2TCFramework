@@ -48,7 +48,7 @@ class Context:
         for i, (process_name, process) in enumerate(self.processes.items()):
             process.aoi.draw(
                 ax,
-                f"$A_{{{int(process_name.split('P')[1])}}}$",
+                f"${process_name}$",
                 offset=((0, 0) if offsets is None else offsets.get(i, (0, 0))),
                 color=(None if colors is None else colors[i]),
             )
@@ -64,6 +64,9 @@ def load_configfile(filename):
     Returns:
         dict: The parsed configuration file as a dictionary.
     """
+    if not Path(filename).is_file():
+        raise FileNotFoundError(f"Configuration file \"{filename}\" not found.")
+    
     with open(filename) as f:
         config_file = json.load(f)
     return config_file
@@ -261,7 +264,11 @@ def load_topology(config_file, context):
                 prob_matrix = dynamic_execute(prob_matrix, context=context)
 
             for a in set_a:
+                if a not in prob_matrix:
+                    raise ValueError(f"Node {a} not found in probability matrix")
                 for b in set_b:
+                    if b not in prob_matrix[a]:
+                        raise ValueError(f"Node {b} not found in probability matrix for {a}")
                     graph.add_edge(
                         a,
                         b,

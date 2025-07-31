@@ -1,0 +1,7 @@
+[
+    { "label":"AP0", "pos": [ 50,50 ], "radius": 200 },
+    { "label":"AP1", "pos": [ 50,150 ], "radius": 200 },
+    { "label":"AP2", "pos": [ 150,50 ], "radius": 200 },
+    { "label":"AP3", "pos": [ 150,150 ], "radius": 200 }
+]
+

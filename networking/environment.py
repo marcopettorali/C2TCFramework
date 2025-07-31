@@ -60,6 +60,11 @@ class Environment:
 
     @staticmethod
     def load_env_from_file(env_filename):
+
+        # check if the file exists
+        if not Path(env_filename).is_file():
+            raise FileNotFoundError(f"Environment file \"{env_filename}\" not found.")
+
         # load json file
         with open(env_filename, "r") as f:
             data = json.load(f)
@@ -74,7 +79,11 @@ class Environment:
         return Environment(width=width, height=height, obstacles=obstacles, deployment=[], env_filename=env_filename)
 
     def load_deployment_from_file(self, deployment_filename, key=None):
-
+        # check if the file exists
+        if not Path(deployment_filename).is_file():
+            raise FileNotFoundError(f"Deployment file \"{deployment_filename}\" not found.")
+        
+        # store the deployment filename
         self.deployment_filename = deployment_filename
 
         # load json file
@@ -88,7 +97,10 @@ class Environment:
         self.load_deployment(data)
 
     def load_deployment(self, deployment):
-        self.deployment = [BR(label=f"BR{i}", color="black", **br) for i, br in enumerate(deployment)]
+        self.deployment = [BR(color="black", **br) for i, br in enumerate(deployment)]
+        for i, br in enumerate(self.deployment):
+            if br.label is None:
+                br.label = f"BR{i}"
         self.recompute_coverage_areas()
 
     def recompute_coverage_areas(self):

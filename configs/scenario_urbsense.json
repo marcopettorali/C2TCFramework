@@ -11,31 +11,31 @@
         "max_delay_ms": [ 200, 500, 1000, 1500, 2000, 4000, 6000, 8000 ],
         "min_reliability": [ 0, 0, 0, 0, 0, 0, 0, 0 ],
         "aoi": [
-            { "type": "circle", "data": [ [ 100,100 ], 10000 ] },
-            { "type": "circle", "data": [ [ 100,100 ], 10000 ] },
-            { "type": "circle", "data": [ [ 100,100 ], 10000 ] },
-            { "type": "circle", "data": [ [ 100,100 ], 10000 ] },
-            { "type": "circle", "data": [ [ 100,100 ], 10000 ] },
-            { "type": "circle", "data": [ [ 100,100 ], 10000 ] },
-            { "type": "circle", "data": [ [ 100,100 ], 10000 ] },
-            { "type": "circle", "data": [ [ 100,100 ], 10000 ] }
+            { "type": "circle", "data": [ [ 100,100 ], 200 ] },
+            { "type": "circle", "data": [ [ 100,100 ], 200 ] },
+            { "type": "circle", "data": [ [ 100,100 ], 200 ] },
+            { "type": "circle", "data": [ [ 100,100 ], 200 ] },
+            { "type": "circle", "data": [ [ 100,100 ], 200 ] },
+            { "type": "circle", "data": [ [ 100,100 ], 200 ] },
+            { "type": "circle", "data": [ [ 100,100 ], 200 ] },
+            { "type": "circle", "data": [ [ 100,100 ], 200 ] }
         ]
     },
 
     "topology": {
         "agents": {
-            "P0": { "type": "process" },
-            "P1": { "type": "process" },
-            "P2": { "type": "process" },
-            "P3": { "type": "process" },
-            "P4": { "type": "process" },
-            "P5": { "type": "process" },
-            "P6": { "type": "process" },
-            "P7": { "type": "process" },
-            "BR0": { "type": "host", "cpu_ghz": 1, "ram_gb": "inf", "infinite_parallelism": false, "qtime_dist_function": "resourceallocation.urbsense.urbsense.qtime(period=8)" },
-            "BR1": { "type": "host", "cpu_ghz": 1, "ram_gb": "inf", "infinite_parallelism": false, "qtime_dist_function": "resourceallocation.urbsense.urbsense.qtime(period=8)" },
-            "BR2": { "type": "host", "cpu_ghz": 1, "ram_gb": "inf", "infinite_parallelism": false, "qtime_dist_function": "resourceallocation.urbsense.urbsense.qtime(period=8)" },
-            "BR3": { "type": "host", "cpu_ghz": 1, "ram_gb": "inf", "infinite_parallelism": false, "qtime_dist_function": "resourceallocation.urbsense.urbsense.qtime(period=8)" },
+            "A0": { "type": "process" },
+            "A1": { "type": "process" },
+            "A2": { "type": "process" },
+            "A3": { "type": "process" },
+            "A4": { "type": "process" },
+            "A5": { "type": "process" },
+            "A6": { "type": "process" },
+            "A7": { "type": "process" },
+            "AP0": { "type": "host", "cpu_ghz": 1, "ram_gb": "inf", "infinite_parallelism": false, "qtime_dist_function": "resourceallocation.urbsense.urbsense.qtime(period=8)" },
+            "AP1": { "type": "host", "cpu_ghz": 1, "ram_gb": "inf", "infinite_parallelism": false, "qtime_dist_function": "resourceallocation.urbsense.urbsense.qtime(period=8)" },
+            "AP2": { "type": "host", "cpu_ghz": 1, "ram_gb": "inf", "infinite_parallelism": false, "qtime_dist_function": "resourceallocation.urbsense.urbsense.qtime(period=8)" },
+            "AP3": { "type": "host", "cpu_ghz": 1, "ram_gb": "inf", "infinite_parallelism": false, "qtime_dist_function": "resourceallocation.urbsense.urbsense.qtime(period=8)" },
             "GW": { "type": "router" },
             "CN": { "type": "host", "cpu_ghz": 4, "ram_gb": "inf", "infinite_parallelism": false, "qtime_dist_function": "resourceallocation.urbsense.urbsense.qtime(period=8)" }
         },
@@ -47,8 +47,8 @@
         },
 
         "network": [
-            { "type": "wireless_unidir", "link_class": "WLAN", "data": { "set_a": [ "P0", "P1", "P2", "P3", "P4", "P5", "P6", "P7" ], "set_b": [ "BR0", "BR1", "BR2", "BR3", "BR4", "BR5" ], "prob_matrix": "resourceallocation.urbsense.urbsense.compute_brcoverage_matrix(number_of_aps=4)" } },
-            { "type": "star_bidir", "link_class": "MAN", "data": { "center": "GW", "set": [ "BR0", "BR1", "BR2", "BR3", "BR4", "BR5" ] } },
+            { "type": "wireless_unidir", "link_class": "WLAN", "data": { "set_a": [ "A0", "A1", "A2", "A3", "A4", "A5", "A6", "A7" ], "set_b": [ "AP0", "AP1", "AP2", "AP3"], "prob_matrix": "resourceallocation.urbsense.urbsense.compute_coverage_matrix(number_of_aps=4)" } },
+            { "type": "star_bidir", "link_class": "MAN", "data": { "center": "GW", "set": [ "AP0", "AP1", "AP2", "AP3"] } },
             { "type": "direct_unidir", "link_class": "WAN", "data": [ "GW", "CN" ] }
         ]
     }

@@ -425,12 +425,13 @@ class DistributionDescriptor:
 
     def __post_init__(self):
         if self.type == "distribution":
-            assert isinstance(self.data, Distribution)
+            assert isinstance(self.data, Distribution), f"Data for distribution must be a Distribution object but got {type(self.data)}"
             self.pdf = self.data
         elif self.type == "file":
-            assert isinstance(self.data, str)
+            assert isinstance(self.data, str), f"Data for file distribution must be a string but got {type(self.data)}"
             self.pdf = Distribution.from_file(self.data)
         elif self.type == "constant":
+            assert isinstance(self.data, (int, float)), f"Data for constant distribution must be a number but got {type(self.data)}"
             self.pdf = Distribution.dirac_delta(self.data)
         elif self.type == "script":
             from utils.dynamic_execute import dynamic_execute

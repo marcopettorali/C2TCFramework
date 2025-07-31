@@ -7,7 +7,7 @@
             "cpu_ghz": 1,
             "distribution": {
                 "type": "constant",
-                "data": "100"
+                "data": 100
             }
         }
     },
@@ -18,7 +18,7 @@
             "cpu_ghz": 1,
             "distribution": {
                 "type": "constant",
-                "data": "250"
+                "data": 250
             }
         }
     },
@@ -29,7 +29,7 @@
             "cpu_ghz": 1,
             "distribution": {
                 "type": "constant",
-                "data": "500"
+                "data": 500
             }
         }
     },
@@ -40,7 +40,7 @@
             "cpu_ghz": 1,
             "distribution": {
                 "type": "constant",
-                "data": "750"
+                "data": 750
             }
         }
     },
@@ -51,7 +51,7 @@
             "cpu_ghz": 1,
             "distribution": {
                 "type": "constant",
-                "data": "1000"
+                "data": 1000
             }
         }
     },
@@ -62,7 +62,7 @@
             "cpu_ghz": 1,
             "distribution": {
                 "type": "constant",
-                "data": "2000"
+                "data": 2000
             }
         }
     },
@@ -73,7 +73,7 @@
             "cpu_ghz": 1,
             "distribution": {
                 "type": "constant",
-                "data": "3000"
+                "data": 3000
             }
         }
     },
@@ -84,7 +84,7 @@
             "cpu_ghz": 1,
             "distribution": {
                 "type": "constant",
-                "data": "4000"
+                "data": 4000
             }
         }
     }
