@@ -44,9 +44,9 @@ if "OMP_NUM_THREADS" not in os.environ or os.environ["OMP_NUM_THREADS"] != "1":
     exit(1)
 
 # GLOBAL VARIABLES (WATCH OUT!)
-PACKET_LOSS_MS = 2000
+PACKET_LOSS_MS = 10000
 MAX_PROCESSES_PER_HOST = 8
-MAX_MNS_PER_PROCESS = 13
+MAX_MNS_PER_PROCESS = 100
 
 
 def _find_paths(graph, source, target):
@@ -193,7 +193,7 @@ def compute_delay_at_min_reliability(context: Context, process: Process, host: H
         # )
         # compute the queuing time based on the number of MNs and the execution delay
         gamma_que = dynamic_execute(
-            host.qtime_dist_function, gamma_exe, process, host, cache_index=f"{process.name}_{host.label}_{cpu_share}"
+            host.qtime_dist_function, context, gamma_exe, process, host, cache_index=f"{process.name}_{host.label}_{cpu_share}"
         ).normalize()
 
         # compute the processing delay (queuing + execution)

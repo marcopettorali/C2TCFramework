@@ -1,6 +1,7 @@
 from multiprocessing import Process
 
 from networking.entities import Host
+from resourceallocation.context import Context
 from utils.distribution import Distribution
 
 
@@ -18,7 +19,7 @@ def compute_coverage_matrix(*args, **kwargs):
     return matrix
 
 
-def qtime(gamma_exe: Distribution, process: Process, host: Host, cache_index=None, period=None):
+def qtime(context: Context, gamma_exe: Distribution, process: Process, host: Host, cache_index=None, period_seconds=None):
     # ASSUMPTION: gamma_exe is constant, I take the median only
     gamma_exe_val = gamma_exe.percentile(50)
 
@@ -27,7 +28,7 @@ def qtime(gamma_exe: Distribution, process: Process, host: Host, cache_index=Non
     queuing_time = gamma_exe_val * (process.mns - 1)
 
     # If queuing_time is >= period, the system is not stable
-    if period is not None and queuing_time >= period:
-        queuing_time = 2000
+    if period_seconds is not None and queuing_time >= period_seconds * 1000: # convert to milliseconds
+        queuing_time = 10000
 
     return Distribution.dirac_delta(queuing_time)

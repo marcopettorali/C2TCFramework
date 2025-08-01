@@ -32,12 +32,12 @@
             "A5": { "type": "process" },
             "A6": { "type": "process" },
             "A7": { "type": "process" },
-            "AP0": { "type": "host", "cpu_ghz": 1, "ram_gb": "inf", "infinite_parallelism": false, "qtime_dist_function": "resourceallocation.urbsense.urbsense.qtime(period=8)" },
-            "AP1": { "type": "host", "cpu_ghz": 1, "ram_gb": "inf", "infinite_parallelism": false, "qtime_dist_function": "resourceallocation.urbsense.urbsense.qtime(period=8)" },
-            "AP2": { "type": "host", "cpu_ghz": 1, "ram_gb": "inf", "infinite_parallelism": false, "qtime_dist_function": "resourceallocation.urbsense.urbsense.qtime(period=8)" },
-            "AP3": { "type": "host", "cpu_ghz": 1, "ram_gb": "inf", "infinite_parallelism": false, "qtime_dist_function": "resourceallocation.urbsense.urbsense.qtime(period=8)" },
+            "AP0": { "type": "host", "cpu_ghz": 1, "ram_gb": "inf", "infinite_parallelism": false, "qtime_dist_function": "resourceallocation.urbsense.urbsense.qtime(period_seconds=8)" },
+            "AP1": { "type": "host", "cpu_ghz": 1, "ram_gb": "inf", "infinite_parallelism": false, "qtime_dist_function": "resourceallocation.urbsense.urbsense.qtime(period_seconds=8)" },
+            "AP2": { "type": "host", "cpu_ghz": 1, "ram_gb": "inf", "infinite_parallelism": false, "qtime_dist_function": "resourceallocation.urbsense.urbsense.qtime(period_seconds=8)" },
+            "AP3": { "type": "host", "cpu_ghz": 1, "ram_gb": "inf", "infinite_parallelism": false, "qtime_dist_function": "resourceallocation.urbsense.urbsense.qtime(period_seconds=8)" },
             "GW": { "type": "router" },
-            "CN": { "type": "host", "cpu_ghz": 4, "ram_gb": "inf", "infinite_parallelism": false, "qtime_dist_function": "resourceallocation.urbsense.urbsense.qtime(period=8)" }
+            "CN": { "type": "host", "cpu_ghz": 4, "ram_gb": "inf", "infinite_parallelism": false, "qtime_dist_function": "resourceallocation.urbsense.urbsense.qtime(period_seconds=8)" }
         },
 
         "link_classes": {

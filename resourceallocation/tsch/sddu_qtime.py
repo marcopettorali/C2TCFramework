@@ -1,6 +1,7 @@
 import numpy as np
 
 from networking.entities import Host, Process
+from resourceallocation.context import Context
 from utils.distribution import Distribution
 from utils.printing import print
 from resourceallocation.jnecora import PACKET_LOSS_MS
@@ -77,6 +78,6 @@ def _queuing_time_sddu_model(service_time_prob, n_mns, g, cache_index=None):
     return ret
 
 
-def qtime(gamma_exe, process: Process, host: Host, cache_index=None, g=None):
+def qtime(context: Context, gamma_exe, process: Process, host: Host, cache_index=None, g=None):
     # print(gamma_exe, process.mns, g, cache_index)
     return _queuing_time_sddu_model(gamma_exe, process.mns, g, cache_index)
