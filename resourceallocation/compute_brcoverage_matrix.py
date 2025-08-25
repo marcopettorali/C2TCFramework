@@ -23,7 +23,7 @@ import numpy as np
 from networking.channel_model import e, override_channel_model_path
 from networking.environment import Environment
 from utils.geom import generate_random_points_in_polygon
-from utils.logging import print
+from utils.logging import debug, info, warning, error
 import shapely as sh
 import multiprocessing as mp
 
@@ -120,12 +120,12 @@ def compute_brcoverage_matrix(*args, **kwargs):
     # check if the cache exists
     cache_file = Path(__file__).parent / "brcoverage_matrix_cache" / f"{cache_key}.pkl"
     if cache_file.exists():
-        print(f"Loading cached coverage matrix from {cache_file}")
+        info(f"Loading cached **coverage matrix** from {cache_file}")
         with open(cache_file, "rb") as f:
             return pickle.load(f)
 
     else:
-        print(f"Cached coverage matrix NOT found ({cache_file})")
+        info(f"Cached **coverage matrix NOT found** ({cache_file}). Generating...")
 
     matrix = {}
     for process_name in context["processes"]:
@@ -146,7 +146,7 @@ def compute_brcoverage_matrix(*args, **kwargs):
         matrix[process_name] = {br: value / row_sum for br, value in matrix[process_name].items()}
 
     # save the cache
-    print(f"Saving cached coverage matrix to {cache_file}")
+    info(f"Saving cached **coverage matrix** to {cache_file}")
     cache_file.parent.mkdir(parents=True, exist_ok=True)
     with open(cache_file, "wb") as f:
         pickle.dump(matrix, f)

@@ -22,15 +22,10 @@ from pathlib import Path
 from utils.logging import info, debug, warning, error
 
 import numpy as np
-from rich import console
 from scipy.integrate import quad
 from scipy.optimize import bisect
 from scipy.special import binom
 from scipy.stats import norm
-
-console = console.Console()
-
-print = console.print
 
 #################################
 # PARAMETERS
@@ -58,9 +53,6 @@ VERBOSE = True
 #################################
 
 BASE_FOLDER = Path(__file__).parent / "channel_models"
-
-
-vprint = print if VERBOSE else lambda *args: None
 
 
 CACHED_E = None
@@ -158,13 +150,13 @@ def e_freeze(data=None, return_data=False):
         xs = np.arange(P["MODEL_STEP_M"], P["MODEL_MAX_DISTANCE_M"], P["MODEL_STEP_M"])
 
         # compute the values of e(x) for each x in xs using multiprocessing
-        vprint(
+        info(
             f"Computing e_frozen with {len(xs)} samples in the range [{P['MODEL_STEP_M']} m, {P['MODEL_MAX_DISTANCE_M']} m) (step = {P['MODEL_STEP_M']} m) with {mp.cpu_count()} cores..."
         )
         with mp.Pool(mp.cpu_count()) as pool:
             ys = pool.map(e_freeze_job, xs)
 
-        vprint("e_frozen computed successfully.")
+        info("e_frozen computed successfully.")
     else:
         xs = data["xs"]
         ys = data["ys"]
@@ -173,7 +165,7 @@ def e_freeze(data=None, return_data=False):
         if x < 0:
             raise ValueError("x must be greater than 0")
         if x >= xs[-1]:
-            vprint(f"Warning: d={x}m is greater than the maximum distance. The result may be inaccurate.")
+            warning(f"d={x}m is greater than the maximum distance. The result may be inaccurate.")
 
         return np.interp(x, xs, ys)
 
@@ -220,10 +212,10 @@ def _model_import_export():
         with open(filename, "r") as f:
             data = json.load(f)
             CACHED_E = e_freeze(data=data)
-            vprint(f"Channel model loaded from '{filename}'")
+            info(f"Channel model loaded from '{filename}'")
     else:
 
-        print(f"Channel model not found at {filename}. Generating...")
+        info(f"Channel model not found at {filename}. Generating...")
 
         model, data_xsys = e_freeze(return_data=True)
         CACHED_E = model
@@ -235,7 +227,7 @@ def _model_import_export():
         with open(filename, "w") as f:
             json.dump(data, f, indent=4)
 
-        print(f"Exported channel model to {filename}")
+        info(f"Exported channel model to {filename}")
 
 
 if __name__ == "__main__":

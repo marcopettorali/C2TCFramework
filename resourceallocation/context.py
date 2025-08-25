@@ -304,7 +304,7 @@ def load_hosts(config_file, context):
         list: A list of Host objects.
     """
     hosts = [
-        Host(h_name, h["cpu_ghz"], h["ram_gb"], h["infinite_parallelism"], h["qtime_dist_function"])
+        Host(h_name, float(h["cpu_ghz"]), float(h["ram_gb"]), h["infinite_parallelism"], h["qtime_dist_function"])
         for h_name, h in config_file["topology"]["agents"].items()
         if h["type"] == "host" and h["cpu_ghz"] > 0
     ]

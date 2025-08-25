@@ -241,12 +241,17 @@ def _worker(process: Process, host: Host, nmns, context: Context):
     to_break = False
     for share in [1 / i for i in range(1, MAX_PROCESSES_PER_HOST + 1)]:
         if to_break:
+            # ASSUMPTION: we don't care when the host can no longer tolerate the app.
+            # In this case we simply stop considering this host for further allocations, and we signal an infinite delay.
             results.append((temp_process.name, host.label, share, nmns, float("inf")))
             continue
 
         delay_at_rel = float(compute_delay_at_min_reliability(context, temp_process, context.hosts[host.label], share))
         # print(f"Process {process.name} on host {host.label} with {share*100}% share: {delay_at_rel}")
         results.append((temp_process.name, host.label, share, nmns, delay_at_rel))
+
+        # ASSUMPTION: we don't care when the host can no longer tolerate the app.
+        # In this case we simply stop considering this host for further allocations, and we signal an infinite delay.
         if delay_at_rel > max_delay_ms:
             to_break = True
             results.append((temp_process.name, host.label, share, nmns, float("inf")))
@@ -313,7 +318,7 @@ class JNecora:
         """
         assert isinstance(context, Context), f"context must be an instance of Context, is {type(context)}"
         self.context = context
-        info(f"Context set")
+        info(f"**Context set**")
 
     @staticmethod
     def load_context_from_file(config_path: str, pickle_context: bool = True, pickle_folder_relative_path: str = "pickles/jnecora"):
@@ -335,6 +340,10 @@ class JNecora:
         # check if in the parent folder there is a pickles folder and inside a pickle file with the same name as the config file
         pickle_path = config_path.parent / pickle_folder_relative_path / f"{config_path.stem}.pkl"
         if pickle_path.exists():
+            # print the date of last modification of the pickle file
+            last_modified_time = datetime.fromtimestamp(pickle_path.stat().st_mtime)
+            formatted_time = last_modified_time.strftime("%H:%M:%S, %A %d %B %Y")
+            info(f"**Found pickle file** {pickle_path}, edited on {formatted_time}. Loading the context from the pickle file")
 
             # unpickle the context and check if the extracted context.config_file_content is the same as the content of config file
             with open(pickle_path, "rb") as f:
@@ -349,12 +358,6 @@ class JNecora:
                 raise Exception(
                     f"The content of the pickled context { pickle_path} is different from the content of the config file {config_path}! Exiting"
                 )
-
-            # print the date of last modification of the pickle file
-            last_modified_time = datetime.fromtimestamp(pickle_path.stat().st_mtime)
-            formatted_time = last_modified_time.strftime("%H:%M:%S, %A %d %B %Y")
-
-            info(f"**Found pickle file** {pickle_path}, edited on {formatted_time}. Loading the context from the pickle file")
 
             # return the pickled context
             return pickled_context

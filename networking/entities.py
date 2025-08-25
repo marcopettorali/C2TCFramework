@@ -45,7 +45,7 @@ class Application:
             return
 
         self.benchmark = Benchmark(**self.benchmark)
-
+        self.ram_occupancy_gb = float(self.ram_occupancy_gb)
 
 @dataclass
 class AoI:
@@ -122,6 +122,7 @@ class Host:
     ram_gb: float = None
     infinite_parallelism: bool = False
     qtime_dist_function: callable = None
+        
 
 
 @dataclass
@@ -132,6 +133,7 @@ class BR(Host):
     coverage_area: sh.geometry.Polygon = None
 
     def __post_init__(self):
+        super().__post_init__()
         if isinstance(self.pos, sh.geometry.Point):
             return
 
@@ -141,6 +143,7 @@ class BR(Host):
 @dataclass
 class CloudNode(Host):
     def __post_init__(self):
+        super().__post_init__()
         self.infinite_parallelism = True
 
 

@@ -6,6 +6,7 @@ from rich.console import Console
 from rich.markup import escape
 from rich.theme import Theme
 from enum import Enum
+from datetime import datetime
 
 
 class LogLevel(Enum):
@@ -43,7 +44,7 @@ my_theme = Theme(
 console = Console(theme=my_theme)
 print = console.print
 
-def _md_to_rich(text: str) -> str:
+def _markdown_to_rich(text: str) -> str:
     """
     Convert markdown-like syntax to Rich markup.
     Supported:
@@ -83,14 +84,15 @@ def _base_print(prefix, base_style, *args, **kwargs):
     rel_filename = os.path.relpath(abs_filename, os.path.abspath(os.path.dirname(__file__)))[3:]
     line_number = frame.f_lineno
 
-    if args:
-        new_args = (f"[{prefix}] {args[0]}",) + tuple(args[1:])
-    else:
-        new_args = (f"[{prefix}]",)
+    timestamp = datetime.now().strftime("%H:%M:%S.%f")
 
-    text = _md_to_rich(" ".join(str(arg) for arg in new_args))
+    prefix = Text(f"[{prefix} {timestamp}]")
+    text = _markdown_to_rich(" ".join(str(arg) for arg in args))
+    file_line = Text(f"({rel_filename}:{line_number})")
+
+    console.print(prefix, end=" ", **kw)
     console.print(text, end=" ", **kw)
-    console.print(Text(f"({rel_filename}:{line_number})"), style="dim italic")
+    console.print(file_line, style="dim " + kw.get("style", "")) #style="dim italic"
 
 def debug(*args, **kwargs):
     if LOGGING_LEVEL <= LogLevel.DEBUG:
