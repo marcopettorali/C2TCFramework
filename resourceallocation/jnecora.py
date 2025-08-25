@@ -32,15 +32,13 @@ from utils.distribution import Distribution
 from utils.dynamic_execute import dynamic_execute
 from utils.ga import ga_optimization
 from utils.plotting import draw_paths, draw_topology
-from utils.printing import print
+from utils.logging import debug, error, info, print, warning
 
 # Check if OMP_NUM_THREADS is set to 1
 if "OMP_NUM_THREADS" not in os.environ or os.environ["OMP_NUM_THREADS"] != "1":
-    print(
-        "The OMP_NUM_THREADS environment variable is not set to 1.\nUse 'export OMP_NUM_THREADS=1' to set it.\nThis is required to avoid issues with multiprocessing and OpenMP.",
-        style="error",
+    error(
+        "The OMP_NUM_THREADS environment variable is not set to 1.\nUse '**export OMP_NUM_THREADS=1**' to set it.\nThis is required to avoid issues with multiprocessing and OpenMP."
     )
-
     exit(1)
 
 # GLOBAL VARIABLES (WATCH OUT!)
@@ -292,7 +290,7 @@ def _compute_gamma_tot_for_each_process_host_cpu_share(context: Context):
     # Flatten the list of results
     results = [item for sublist in results for item in sublist]
 
-    print(f"Inserting {len(results)} results in the context", style="debug")
+    debug(f"Inserting {len(results)} results in the context")
     for process_name, host_label, cpu_share, nmns, gamma_tot in results:
         context.links["gamma_tot_precomputed"][(process_name, host_label, cpu_share, nmns)] = float(gamma_tot)
 
@@ -313,12 +311,12 @@ class JNecora:
         Args:
             context (Context): The simulation context.
         """
-        assert isinstance(context, Context), "context must be an instance of Context"
+        assert isinstance(context, Context), f"context must be an instance of Context, is {type(context)}"
         self.context = context
-        print(f"Context set", style="debug")
+        info(f"Context set")
 
     @staticmethod
-    def load_context_from_file(config_path: str, pickle_context: bool = True):
+    def load_context_from_file(config_path: str, pickle_context: bool = True, pickle_folder_relative_path: str = "pickles/jnecora"):
         """
         Loads the simulation context from a configuration file.
 
@@ -329,13 +327,13 @@ class JNecora:
         Returns:
             Context: The loaded simulation context.
         """
-        print(f"Importing context from file {config_path}", style="debug")
+        info(f"**Importing context** from file {config_path}")
 
         # convert the config_path to a Path object
         config_path = Path(config_path)
 
         # check if in the parent folder there is a pickles folder and inside a pickle file with the same name as the config file
-        pickle_path = config_path.parent / "pickles" / "jnecora" / f"{config_path.stem}.pkl"
+        pickle_path = config_path.parent / pickle_folder_relative_path / f"{config_path.stem}.pkl"
         if pickle_path.exists():
 
             # unpickle the context and check if the extracted context.config_file_content is the same as the content of config file
@@ -356,34 +354,34 @@ class JNecora:
             last_modified_time = datetime.fromtimestamp(pickle_path.stat().st_mtime)
             formatted_time = last_modified_time.strftime("%H:%M:%S, %A %d %B %Y")
 
-            print(
-                f"Found pickle file {pickle_path}, edited on {formatted_time}. Loading the context from the pickle file",
-                style="warning",
-            )
+            info(f"**Found pickle file** {pickle_path}, edited on {formatted_time}. Loading the context from the pickle file")
 
             # return the pickled context
             return pickled_context
 
         # load the config file
+        info("**No pickle file found**, loading the context from the config file")
         context = load_context(config_path)
 
         # compute the gamma_com for each process and host
+        info("Precomputing **end-to-end communication delays**")
         context = _compute_end_to_end_communication_delays(context)
 
         # compute the gamma_proc for each process, host and cpu_share
+        info("Precomputing **gamma_tot** for each process, host and cpu_share")
         context = _compute_gamma_tot_for_each_process_host_cpu_share(context)
 
         # if pickle_context is True, pickle the context
         if pickle_context:
             # create the pickles folder if it does not exist
-            pickles_folder = config_path.parent / "pickles" / "jnecora"
+            pickles_folder = config_path.parent / pickle_folder_relative_path
             pickles_folder.mkdir(exist_ok=True, parents=True)
 
             # pickle the context
             with open(pickle_path, "wb") as f:
                 pickle.dump(context, f)
 
-            print(f"Pickled context to {pickle_path}", style="warning")
+            info(f"**Pickled context** to {pickle_path}")
 
         return context
 
@@ -497,8 +495,8 @@ class JNecora:
         for process_name, _ in init_allocation:
             process_names.remove(process_name)
 
-        print(f"Initial allocation: {init_allocation}", style="debug")
-        print(f"Remaining processes: {process_names}", style="debug")
+        debug(f"Initial allocation: {init_allocation}")
+        debug(f"Remaining processes: {process_names}")
 
         solutions = []  # This will store all valid candidate solutions
 
@@ -571,16 +569,16 @@ class JNecora:
             num_combinations = len(host_labels) ** len(process_names)
 
             if num_combinations <= 1000000:
-                print(f"Exhaustive search with {num_combinations} combinations", style="debug")
+                info(f"Exhaustive search with {num_combinations} combinations")
             elif num_combinations <= 1000000000:
-                print(
+                info(
                     f"The search space size is {num_combinations / 1000000:.2f}M. This may take a while. Consider using non-exhaustive methods (e.g. 'ga').",
-                    style="warning",
+                    style="yellow",
                 )
             else:
-                print(
+                info(
                     f"The search space size is {num_combinations / 1000000000:.2f}B. PLEASE CONSIDER USING NON-EXHAUSTIVE METHODS (e.g. 'ga').",
-                    style="error",
+                    style="red bold",
                 )
 
             # Generate all possible combinations of process-host assignments
@@ -599,7 +597,7 @@ class JNecora:
             best_solution = all_combinations[results.index(best_value)]
 
         elif method == "ga":
-            print(f"Using GA with {len(process_names)} processes and {len(host_labels)} hosts", style="debug")
+            info(f"Using GA with {len(process_names)} processes and {len(host_labels)} hosts", style="debug")
 
             objective_function = self._max_deltadelay_objective if objective == "max_deltadelay" else self._max_mns_objective
 
@@ -627,13 +625,19 @@ if __name__ == "__main__":
     import itertools
     import sys
     import argparse
+    from argparse import RawTextHelpFormatter
     import matplotlib.pyplot as plt
 
     # with argparse, the first parameter is the scenario name relative to configs/, there is a argument "result-path" that is the path of the json file where to save the results
     # there is a command --draw-route src dest that draws the path from src to dest and exits
-    parser = argparse.ArgumentParser(description="JNecora: Resource allocation for C2TC")
+    parser = argparse.ArgumentParser(
+        description='J-NECORA: Resource allocation for C2TC (2024, Marco Pettorali)\nM. Pettorali, F. Righetti, C. Vallati, S. K. Das and G. Anastasi, "J-NECORA: A Framework for Optimal Resource Allocation in Cloud-Edge-Things Continuum for Industrial Applications With Mobile Nodes," in IEEE Internet of Things Journal, vol. 12, no. 11, pp. 16525-16542, 1 June1, 2025, doi: 10.1109/JIOT.2025.3536700.\nhttps://ieeexplore.ieee.org/document/10886960',
+        formatter_class=RawTextHelpFormatter,
+    )
     parser.add_argument("scenario_name", type=str, help="The scenario name relative to configs/")
-    parser.add_argument("--result-path", type=str, default="results.json", help="The path of the json file where to save the results relative to out/")
+    parser.add_argument(
+        "--result-path", type=str, default="results.json", help="The path of the json file where to save the results relative to out/"
+    )
     parser.add_argument(
         "--draw-route",
         type=str,
@@ -643,11 +647,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
     # check if the scenario name is provided
     if args.scenario_name is None:
-        print("Scenario name is required", style="error")
+        error("Scenario name is required")
         sys.exit(1)
     # check if the result path is provided
     if args.result_path is None:
-        print("Result path is required", style="error")
+        error("Result path is required")
         sys.exit(1)
     # check if the draw path is provided
     if args.draw_route is not None:
@@ -655,10 +659,10 @@ if __name__ == "__main__":
         # check if src and dest are in the topology graph
         context = JNecora.load_context_from_file(f"configs/{args.scenario_name}.json")
         if src not in context.topology_graph.nodes:
-            print(f"Node {src} is not in the topology graph", style="error")
+            error(f"Node {src} is not in the topology graph")
             sys.exit(1)
         if dest not in context.topology_graph.nodes:
-            print(f"Node {dest} is not in the topology graph", style="error")
+            error(f"Node {dest} is not in the topology graph")
             sys.exit(1)
         # draw the path from src to dest
         fig, ax = draw_topology(context.topology_graph)
@@ -674,7 +678,7 @@ if __name__ == "__main__":
     jnecora.set_context(context)
 
     # Run the allocation (find an optimal solution)
-    print(f"Allocating all processes with the optimal solution", style="info")
+    info(f"Allocating all processes with the optimal solution")
 
     ret = jnecora.allocate_all_processes_optimal()
     # ret = jnecora.allocate_all_processes_besteffort(method="ga")
@@ -682,13 +686,13 @@ if __name__ == "__main__":
 
     # if the optimal solution is not found, try with the best-effort solution
     if not solution:
-        print("No optimal solution found. Trying with the best-effort solution", style="warning")
+        info("No optimal solution found. Trying with the best-effort solution", style="warning")
         ret = jnecora.allocate_all_processes_besteffort()
         solution, value = ret
 
     # print the solution
-    print(f"Best solution: {solution}", style="debug")
-    print(f"Best value: {value}", style="debug")
+    debug(f"Best solution: {solution}", style="debug")
+    debug(f"Best value: {value}", style="debug")
 
     # put the allocated CPU share and the max number of MNs in the solution
     new_solution = []
@@ -716,7 +720,7 @@ if __name__ == "__main__":
         new_solution.append((process_name, host_label, cpu_share, valid_nms))
 
     results = [new_solution, value]
-    print(new_solution)
+    debug(new_solution)
 
     # save the results in a json file
     import json
@@ -728,7 +732,7 @@ if __name__ == "__main__":
     # if the path does not exist, create it
     if not os.path.exists(filename):
         with open(filename, "w") as f:
-            json.dump({scenario_name:results}, f, indent=4)
+            json.dump({scenario_name: results}, f, indent=4)
     else:
 
         with open(filename, "r") as f:

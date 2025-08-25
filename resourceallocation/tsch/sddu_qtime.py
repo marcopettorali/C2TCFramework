@@ -3,7 +3,7 @@ import numpy as np
 from networking.entities import Host, Process
 from resourceallocation.context import Context
 from utils.distribution import Distribution
-from utils.printing import print
+from utils.logging import print
 from resourceallocation.jnecora import PACKET_LOSS_MS
 
 _QUEUING_TIME_CACHE = {}

@@ -18,7 +18,7 @@ from rich.text import Text
 
 from networking.entities import Application, Host, Process, ProcessSplit
 from utils.colors import colorize_text, heatmap
-from utils.printing import print
+from utils.logging import print
 
 
 class AllocationMap:

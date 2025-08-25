@@ -21,7 +21,7 @@ from networking.environment import Environment
 from resourceallocation.context import load_context
 from utils.colors import palette
 from utils.plotting import bold, latex_initialize
-from utils.printing import print
+from utils.logging import print
 import sys
 
 latex_initialize()

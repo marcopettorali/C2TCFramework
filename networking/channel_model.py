@@ -19,6 +19,7 @@ import math
 import multiprocessing as mp
 import os
 from pathlib import Path
+from utils.logging import info, debug, warning, error
 
 import numpy as np
 from rich import console
@@ -69,7 +70,7 @@ def override_channel_model_path(path):
     global P
     P["MODEL_PATH_OVERRIDE"] = path
 
-    print(f"Model path override set to {path}")
+    info(f"**Channel model path overridden**, set to {path}")
 
 
 def mw_to_dbm(x):

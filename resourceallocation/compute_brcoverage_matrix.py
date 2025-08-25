@@ -23,7 +23,7 @@ import numpy as np
 from networking.channel_model import e, override_channel_model_path
 from networking.environment import Environment
 from utils.geom import generate_random_points_in_polygon
-from utils.printing import print
+from utils.logging import print
 import shapely as sh
 import multiprocessing as mp
 
