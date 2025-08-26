@@ -39,7 +39,7 @@
             "BR4": { "type": "host", "cpu_ghz": 0, "ram_gb": 8, "infinite_parallelism": false, "qtime_dist_function": "resourceallocation.tsch.sddu_qtime.qtime(g=4)" },
             "BR5": { "type": "host", "cpu_ghz": 0, "ram_gb": 8, "infinite_parallelism": false, "qtime_dist_function": "resourceallocation.tsch.sddu_qtime.qtime(g=4)" },
             "GW": { "type": "router" },
-            "FN": { "type": "host", "cpu_ghz": 18, "ram_gb": 32, "infinite_parallelism": false, "qtime_dist_function": "resourceallocation.tsch.sddu_qtime.qtime(g=4)" },
+            "FN": { "type": "host", "cpu_ghz": 18, "ram_gb": 32, "infinite_parallelism": true, "qtime_dist_function": "resourceallocation.tsch.sddu_qtime.qtime(g=4)" },
             "CN": { "type": "host", "cpu_ghz": 19.2, "ram_gb": "inf", "infinite_parallelism": true, "qtime_dist_function": "resourceallocation.tsch.sddu_qtime.qtime(g=4)" }
         },
 

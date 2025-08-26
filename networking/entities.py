@@ -133,7 +133,6 @@ class BR(Host):
     coverage_area: sh.geometry.Polygon = None
 
     def __post_init__(self):
-        super().__post_init__()
         if isinstance(self.pos, sh.geometry.Point):
             return
 
@@ -143,7 +142,6 @@ class BR(Host):
 @dataclass
 class CloudNode(Host):
     def __post_init__(self):
-        super().__post_init__()
         self.infinite_parallelism = True
 
 

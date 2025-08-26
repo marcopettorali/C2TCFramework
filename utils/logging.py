@@ -83,12 +83,13 @@ def _base_print(prefix, base_style, *args, **kwargs):
     abs_filename = os.path.abspath(frame.f_code.co_filename)
     rel_filename = os.path.relpath(abs_filename, os.path.abspath(os.path.dirname(__file__)))[3:]
     line_number = frame.f_lineno
+    function_name = frame.f_code.co_name
 
     timestamp = datetime.now().strftime("%H:%M:%S.%f")
 
     prefix = Text(f"[{prefix} {timestamp}]")
     text = _markdown_to_rich(" ".join(str(arg) for arg in args))
-    file_line = Text(f"({rel_filename}:{line_number})")
+    file_line = Text(f"({rel_filename}:{line_number} - {function_name}())")
 
     console.print(prefix, end=" ", **kw)
     console.print(text, end=" ", **kw)
