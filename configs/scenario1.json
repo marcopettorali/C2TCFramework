@@ -39,7 +39,6 @@
             "BR4": { "type": "host", "cpu_ghz": 8, "ram_gb": 8, "infinite_parallelism": false, "qtime_dist_function": "resourceallocation.tsch.sddu_qtime.qtime(g=4)" },
             "BR5": { "type": "host", "cpu_ghz": 8, "ram_gb": 8, "infinite_parallelism": false, "qtime_dist_function": "resourceallocation.tsch.sddu_qtime.qtime(g=4)" },
             "GW": { "type": "router" },
-            "FN": { "type": "host", "cpu_ghz": 18, "ram_gb": 32, "infinite_parallelism": false, "qtime_dist_function": "resourceallocation.tsch.sddu_qtime.qtime(g=4)" },
             "CN": { "type": "host", "cpu_ghz": 19.2, "ram_gb": "inf", "infinite_parallelism": true, "qtime_dist_function": "resourceallocation.tsch.sddu_qtime.qtime(g=4)" }
         },
 
@@ -53,7 +52,6 @@
         "network": [
             { "type": "wireless_unidir", "link_class": "TSCH", "data": { "set_a": [ "P0", "P1", "P2", "P3", "P4", "P5", "P6", "P7" ], "set_b": [ "BR0", "BR1", "BR2", "BR3", "BR4", "BR5" ], "prob_matrix": "resourceallocation.compute_brcoverage_matrix.compute_brcoverage_matrix(channel_model='mobile6tisch-3.json')" } },
             { "type": "star_bidir", "link_class": "BB", "data": { "center": "GW", "set": [ "BR0", "BR1", "BR2", "BR3", "BR4", "BR5" ] } },
-            { "type": "direct_unidir", "link_class": "FL", "data": [ "GW", "FN" ] },
             { "type": "direct_unidir", "link_class": "CL", "data": [ "GW", "CN" ] }
         ]
     }
