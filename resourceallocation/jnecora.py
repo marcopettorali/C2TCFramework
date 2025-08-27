@@ -32,7 +32,7 @@ from utils.distribution import Distribution
 from utils.dynamic_execute import dynamic_execute
 from utils.ga import ga_optimization
 from utils.plotting import draw_paths, draw_topology
-from utils.logging import debug, error, info, print, warning
+from utils.logging import debug, error, focus, info, print, warning
 
 # Check if OMP_NUM_THREADS is set to 1
 if "OMP_NUM_THREADS" not in os.environ or os.environ["OMP_NUM_THREADS"] != "1":
@@ -218,6 +218,7 @@ def compute_delay_at_min_reliability(context: Context, process: Process, host: H
     # return the delay at the min reliability percentile
     return delay_at_min_reliability
 
+_CPU_SHARES = None
 
 def _worker(process: Process, host: Host, nmns, context: Context):
     """
@@ -238,8 +239,16 @@ def _worker(process: Process, host: Host, nmns, context: Context):
     max_delay_ms = temp_process.max_delay_ms
 
     results = []
+
+    # if the host has infinite parallelism, just try if it can accommodate the process with maximum CPU
+    if host.infinite_parallelism:
+        delay_at_rel = float(compute_delay_at_min_reliability(context, temp_process, context.hosts[host.label], 1.0))
+        results = [(temp_process.name, host.label, 1.0, nmns, delay_at_rel)]
+        return results
+
     to_break = False
-    for share in [1 / i for i in range(1, MAX_PROCESSES_PER_HOST + 1)]:
+
+    for share in _CPU_SHARES:
         if to_break:
             # ASSUMPTION: we don't care when the host can no longer tolerate the app.
             # In this case we simply stop considering this host for further allocations, and we signal an infinite delay.
@@ -259,7 +268,7 @@ def _worker(process: Process, host: Host, nmns, context: Context):
     return results
 
 
-def _compute_gamma_tot_for_each_process_host_cpu_share(context: Context):
+def _compute_gamma_tot_for_each_process_host_cpu_share(context: Context, cpu_shares):
     """
     Precomputes the total delay (gamma_tot) for each process-host-CPU share combination.
 
@@ -269,6 +278,13 @@ def _compute_gamma_tot_for_each_process_host_cpu_share(context: Context):
     Returns:
         Context: The updated context with precomputed gamma_tot values.
     """
+    # Make sure cpu shares are descending
+    cpu_shares.sort(reverse=True)
+    global _CPU_SHARES
+    _CPU_SHARES = cpu_shares
+    debug(f"Building gamma_tot with {_CPU_SHARES}")
+
+
     context.links["gamma_tot_precomputed"] = {}
 
     cpu_share: float
@@ -281,9 +297,7 @@ def _compute_gamma_tot_for_each_process_host_cpu_share(context: Context):
                     [
                         (process, host, nmns, context)
                         for process, host, nmns in itertools.product(
-                            context.processes.values(),
-                            context.hosts.values(),
-                            range(1, MAX_MNS_PER_PROCESS + 1),
+                            context.processes.values(), context.hosts.values(), range(1, MAX_MNS_PER_PROCESS + 1)
                         )
                     ],
                     total=len(context.processes) * len(context.hosts) * MAX_MNS_PER_PROCESS,
@@ -321,7 +335,12 @@ class JNecora:
         info(f"**Context set**")
 
     @staticmethod
-    def load_context_from_file(config_path: str, pickle_context: bool = True, pickle_folder_relative_path: str = "pickles/jnecora"):
+    def load_context_from_file(
+        config_path: str,
+        pickle_context: bool = True,
+        pickle_folder_relative_path: str = "pickles/jnecora",
+        _cpu_shares=[1 / i for i in range(1, MAX_PROCESSES_PER_HOST + 1)],
+    ):
         """
         Loads the simulation context from a configuration file.
 
@@ -372,7 +391,7 @@ class JNecora:
 
         # compute the gamma_proc for each process, host and cpu_share
         info("Precomputing **gamma_tot** for each process, host and cpu_share")
-        context = _compute_gamma_tot_for_each_process_host_cpu_share(context)
+        context = _compute_gamma_tot_for_each_process_host_cpu_share(context, _cpu_shares)
 
         # if pickle_context is True, pickle the context
         if pickle_context:
