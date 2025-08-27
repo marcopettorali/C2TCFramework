@@ -261,7 +261,7 @@ class DJNecora(JNecora):
         debug(f"Process allocation table: {self._allocation_table_per_host}")
         debug(f"Available resources: {self._available_resources_per_host}")
 
-        info(f"Process {process_name} allocation complete: allocated {allocated_mns}/{process.mns} MNs, {number_splits_created} splits created")
+        info(f"**Process {process_name} allocation complete**: allocated {allocated_mns}/{process.mns} MNs, {number_splits_created} splits created")
 
     def add_mns_for_process(self, process_name: str, additional_mns: int = 1):
         raise NotImplementedError("Method not implemented yet.")
