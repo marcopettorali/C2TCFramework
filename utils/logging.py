@@ -41,7 +41,11 @@ class LogLevel(Enum):
         return levels.index(self) <= levels.index(other)
 
 
-LOGGING_LEVEL = LogLevel.INFO
+_LOGGING_LEVEL = LogLevel.DEBUG
+
+def set_logging_level(level: LogLevel):
+    global _LOGGING_LEVEL
+    _LOGGING_LEVEL = level
 
 def _markdown_to_rich(text: str) -> str:
     """
@@ -154,25 +158,25 @@ def _base_print(prefix, base_style, *args, **kwargs):
 
 # ===== Wrapper di livello =====
 def debug(*args, **kwargs):
-    if LOGGING_LEVEL <= LogLevel.DEBUG:
+    if _LOGGING_LEVEL <= LogLevel.DEBUG:
         _base_print("DEBUG", "italic", *args, **kwargs)
 
 
 def info(*args, **kwargs):
-    if LOGGING_LEVEL <= LogLevel.INFO:
+    if _LOGGING_LEVEL <= LogLevel.INFO:
         _base_print("INFO", "blue", *args, **kwargs)
 
 
 def focus(*args, **kwargs):
-    if LOGGING_LEVEL <= LogLevel.FOCUS:
+    if _LOGGING_LEVEL <= LogLevel.FOCUS:
         _base_print("FOCUS", "bold green", *args, **kwargs)
 
 
 def warning(*args, **kwargs):
-    if LOGGING_LEVEL <= LogLevel.WARNING:
+    if _LOGGING_LEVEL <= LogLevel.WARNING:
         _base_print("WARNING", "bold yellow", *args, **kwargs)
 
 
 def error(*args, **kwargs):
-    if LOGGING_LEVEL <= LogLevel.ERROR:
+    if _LOGGING_LEVEL <= LogLevel.ERROR:
         _base_print("ERROR", "bold red", *args, **kwargs)

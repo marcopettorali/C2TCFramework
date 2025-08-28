@@ -1,20 +1,19 @@
 import numpy as np
 
 from networking.entities import Host, Process
-from resourceallocation.context import Context
+from resourceallocation.context import Context, load_context
 from utils.distribution import Distribution
-from utils.logging import print
+from utils.logging import debug, info
 from resourceallocation.jnecora import PACKET_LOSS_MS
+
+from time import time
 
 _QUEUING_TIME_CACHE = {}
 
 
-def _queuing_time_job(g_pmf, st_conv_at, n_mns, cache_index=None, i=0):
-
+def _queuing_time_job(g_pmf, st_conv_at, n_mns, cpu_share, cache_index=None, i=0):
     global _QUEUING_TIME_CACHE
     g_pmf.label = f"g_pmf_{i}"
-
-    # print(g_pmf, style="debug")
 
     # if n_mns == 1 immediately stop
     if i == n_mns - 1:
@@ -23,18 +22,29 @@ def _queuing_time_job(g_pmf, st_conv_at, n_mns, cache_index=None, i=0):
     # compute the cache key
     cache_key = f"{cache_index}_{i}"
     if cache_index is not None and cache_key in _QUEUING_TIME_CACHE:
-        # immediately call the next iteration
-        g_pmf = _QUEUING_TIME_CACHE[cache_key]
-        return _queuing_time_job(g_pmf, st_conv_at, n_mns, cache_index, i + 1)
+        if cpu_share in _QUEUING_TIME_CACHE[cache_key]:
+            # immediately call the next iteration
+            g_pmf = _QUEUING_TIME_CACHE[cache_key][cpu_share]
+            return _queuing_time_job(g_pmf, st_conv_at, n_mns, cpu_share, cache_index, i + 1)
+
+        # else, if exists an entry with higher cpu share and has first percentile >= PACKET_LOSS_MS, return a dirac delta at PACKET_LOSS_MS
+        higher_cpu_share = [k for k in _QUEUING_TIME_CACHE[cache_key] if k > cpu_share]
+        if higher_cpu_share:
+            for k in higher_cpu_share:
+                if _QUEUING_TIME_CACHE[cache_key][k].percentile(1) >= PACKET_LOSS_MS:
+                    return Distribution.dirac_delta(PACKET_LOSS_MS)
 
     # perform the convolution
     g_pmf: Distribution = g_pmf + st_conv_at
 
     # if the first percentile == PACKET_LOSS_MS, return a dirac delta at PACKET_LOSS_MS
-    if g_pmf.percentile(1) >= PACKET_LOSS_MS:
+    first_percentile = g_pmf.percentile(1)
+    if first_percentile >= PACKET_LOSS_MS:
         # print(f"Queuing time is out-of-scale for ({cache_index}, {n_mns}, {i}), returning a dirac delta at {PACKET_LOSS_MS}ms", style="warning")
         g_pmf = Distribution.dirac_delta(PACKET_LOSS_MS)
-        _QUEUING_TIME_CACHE[cache_key] = g_pmf
+        if not cache_key in _QUEUING_TIME_CACHE:
+            _QUEUING_TIME_CACHE[cache_key] = {}
+        _QUEUING_TIME_CACHE[cache_key][cpu_share] = g_pmf
         return g_pmf
 
     # resample positive part of the distribution to uniform grid from 0
@@ -55,29 +65,62 @@ def _queuing_time_job(g_pmf, st_conv_at, n_mns, cache_index=None, i=0):
         # create the new g_pmf
         g_pmf = Distribution(new_xs, new_ys).normalize()
 
-    _QUEUING_TIME_CACHE[cache_key] = g_pmf
+    if cache_key not in _QUEUING_TIME_CACHE:
+        _QUEUING_TIME_CACHE[cache_key] = {}
+    _QUEUING_TIME_CACHE[cache_key][cpu_share] = g_pmf
 
-    return _queuing_time_job(g_pmf, st_conv_at, n_mns, cache_index, i + 1)
+    return _queuing_time_job(g_pmf, st_conv_at, n_mns, cpu_share, cache_index, i + 1)
 
 
-def _queuing_time_sddu_model(service_time_prob, n_mns, g, cache_index=None):
+_ST_CONV_AT_CACHE = {}
+
+
+def _queuing_time_sddu_model(service_time_prob, n_mns, cpu_share, g, cache_index=None):
+    global _ST_CONV_AT_CACHE
 
     service_time_prob.label = "service_time"
 
     spacing_ms = 15 if g != 1 else 30
     at_minus_pmf = Distribution.dirac_delta(-spacing_ms)
 
-    # convolve the service time with the negative spacing
-    st_conv_at = service_time_prob + at_minus_pmf
+    # find st_conv_at in the cache
+    if cache_index in _ST_CONV_AT_CACHE:
+        st_conv_at = _ST_CONV_AT_CACHE[cache_index]
+    else:
+        # convolve the service time with the negative spacing
+        st_conv_at = service_time_prob + at_minus_pmf
+        _ST_CONV_AT_CACHE[cache_index] = st_conv_at
 
     # start with the first g_pmf
     g_pmf = Distribution.dirac_delta(0)
 
-    ret = _queuing_time_job(g_pmf, st_conv_at, n_mns, cache_index)
+    ret = _queuing_time_job(g_pmf, st_conv_at, n_mns, cpu_share, cache_index)
 
     return ret
 
 
-def qtime(context: Context, gamma_exe, process: Process, host: Host, cache_index=None, g=None):
-    # print(gamma_exe, process.mns, g, cache_index)
-    return _queuing_time_sddu_model(gamma_exe, process.mns, g, cache_index)
+def qtime(context: Context, gamma_exe, process: Process, host: Host, cpu_share, cache_index=None, g=None):
+    ret = _queuing_time_sddu_model(gamma_exe, process.mns, cpu_share, g, cache_index)
+    return ret
+
+
+if __name__ == "__main__":
+    context = load_context(filename="configs/scenario1.json")
+
+    process = context.processes["P7"]
+    host = context.hosts["BR0"]
+    cpu_share = 0.02
+
+    gamma_exe = (
+        process.application.benchmark.distribution.pdf * ((process.application.benchmark.cpu_ghz / host.cpu_ghz) * (1 / cpu_share))
+    ).normalize()
+
+    from utils.logging import set_logging_level, LogLevel
+
+    set_logging_level(LogLevel.NONE)
+    process.mns = 50
+    qtime(context, gamma_exe, process, host, cache_index=f"{process.name}_{host.label}", g=4)
+
+    set_logging_level(LogLevel.ALL)
+    process.mns = 51
+    qtime(context, gamma_exe, process, host, cache_index=f"{process.name}_{host.label}", g=4)

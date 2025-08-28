@@ -19,7 +19,7 @@ def compute_coverage_matrix(*args, **kwargs):
     return matrix
 
 
-def qtime(context: Context, gamma_exe: Distribution, process: Process, host: Host, cache_index=None, period_seconds=None):
+def qtime(context: Context, gamma_exe: Distribution, process: Process, host: Host, cpu_share, cache_index=None, period_seconds=None):
     # ASSUMPTION: gamma_exe is constant, I take the median only
     gamma_exe_val = gamma_exe.percentile(50)
 

@@ -22,6 +22,7 @@ import os
 import pickle
 from datetime import datetime
 from pathlib import Path
+import numpy as np
 from tqdm import tqdm
 
 import networkx as nx
@@ -44,7 +45,7 @@ if "OMP_NUM_THREADS" not in os.environ or os.environ["OMP_NUM_THREADS"] != "1":
 # GLOBAL VARIABLES (WATCH OUT!)
 PACKET_LOSS_MS = 10000
 MAX_PROCESSES_PER_HOST = 8
-MAX_MNS_PER_PROCESS = 100
+MAX_MNS_PER_PROCESS = 50
 
 
 def _find_paths(graph, source, target):
@@ -130,6 +131,9 @@ def disable_cache():
 _DELAY_CACHE = {}
 
 
+import time
+
+
 def compute_delay_at_min_reliability(context: Context, process: Process, host: Host, cpu_share: float):
     """
     Computes the end-to-end delay at the min reliability percentile for a process on a host with a given CPU share.
@@ -147,58 +151,47 @@ def compute_delay_at_min_reliability(context: Context, process: Process, host: H
     if cache_key in _DELAY_CACHE:
         for k, v in _DELAY_CACHE[cache_key].items():
             if v >= PACKET_LOSS_MS and cpu_share <= k:
-                # print(
-                #     f"Already computed delay at min reliability for process {process.name} on host {host.label} with CPU share = {k}. Hence, now that CPU share is {cpu_share}, I am returning {PACKET_LOSS_MS}",
-                #     style="warning",
-                # )
                 return PACKET_LOSS_MS
 
     # retrieve the communication delay to get to the BR when the MNs are directly connected
     gamma_com = context.links["gamma_com"][(process.name, host.label)]
 
-    # print("Bisection job with scale", scale, style="debug")
     # compute the scaled execution delay (based on the host's CPU and the scale parameter)
-
     gamma_exe = (
         process.application.benchmark.distribution.pdf * ((process.application.benchmark.cpu_ghz / host.cpu_ghz) * (1 / cpu_share))
     ).normalize()
 
     # check if gamma_exe is out-of-scale
     if gamma_exe.percentile(1) >= PACKET_LOSS_MS:
-        # print(
-        #     f"Execution time is out-of-scale for process {process.name} on host {host.label}, returning a dirac delta at {PACKET_LOSS_MS}ms",
-        #     style="debug",
-        # )
-
         # store the result in the cache
         if cache_key not in _DELAY_CACHE:
             _DELAY_CACHE[cache_key] = {}
         _DELAY_CACHE[cache_key][cpu_share] = PACKET_LOSS_MS
-
         return PACKET_LOSS_MS
 
     if host.infinite_parallelism:
-        # print(
-        #     f"Host {host.label} has infinite parallelism, the processing delay is equal to the execution delay",
-        #     style="debug",
-        # )
         # the processing delay is equal to the execution delay
         gamma_proc = gamma_exe
     else:
-        # print(
-        #     f"Computing the queuing time for process {process.name} on host {host.label}",
-        #     style="debug",
-        # )
         # compute the queuing time based on the number of MNs and the execution delay
         gamma_que = dynamic_execute(
-            host.qtime_dist_function, context, gamma_exe, process, host, cache_index=f"{process.name}_{host.label}_{cpu_share}"
+            host.qtime_dist_function, context, gamma_exe, process, host, cpu_share, cache_index=f"{process.name}_{host.label}"
         ).normalize()
 
-        # compute the processing delay (queuing + execution)
-        gamma_proc = gamma_que + gamma_exe
+        # if gamma_que is PACKET_LOSS_MS do not convolve (is a Dirac delta at PACKET_LOSS_MS)
+        if gamma_que.percentile(1) >= PACKET_LOSS_MS:
+            gamma_proc = gamma_que
+        else:
+            # compute the processing delay (queuing + execution)
+            gamma_proc = gamma_que + gamma_exe
 
     # compute the total delay (communication + processing)
-    gamma_tot: Distribution = gamma_com + gamma_proc
+    # if gamma_proc is PACKET_LOSS_MS, do not convolve (is a Dirac delta at PACKET_LOSS_MS)
+    if gamma_proc.percentile(1) >= PACKET_LOSS_MS:
+        gamma_tot = gamma_proc
+    else:
+        gamma_tot = gamma_com + gamma_proc
+
     gamma_tot = gamma_tot.normalize()
 
     # compute the delay at the min reliability percentile
@@ -206,8 +199,6 @@ def compute_delay_at_min_reliability(context: Context, process: Process, host: H
 
     # TODO remove 1.5 ms for numerical errors
     delay_at_min_reliability -= 1.5
-
-    # print(f"Delay at min reliability = {delay_at_min_reliability} ms", style="debug")
 
     # store the result in the cache
     if not _DISABLE_CACHE and cache_key not in _DELAY_CACHE:
@@ -218,7 +209,9 @@ def compute_delay_at_min_reliability(context: Context, process: Process, host: H
     # return the delay at the min reliability percentile
     return delay_at_min_reliability
 
+
 _CPU_SHARES = None
+
 
 def _worker(process: Process, host: Host, nmns, context: Context):
     """
@@ -248,7 +241,25 @@ def _worker(process: Process, host: Host, nmns, context: Context):
 
     to_break = False
 
-    for share in _CPU_SHARES:
+    # if _CPU_SHARES is a list --> use it
+    # else, if is a dict, interpret it as a rule to build the _CPU_SHARE
+    if isinstance(_CPU_SHARES, list):
+        cpu_shares = _CPU_SHARES
+    elif isinstance(_CPU_SHARES, dict):
+        if "cpu_ghz_precision" in _CPU_SHARES:
+            step_ghz = _CPU_SHARES["cpu_ghz_precision"]
+            # convert it to a share for this host
+            step_share = step_ghz / host.cpu_ghz
+            cpu_shares = list(np.arange(step_share, 1.0 + step_share, step_share))
+            cpu_shares.reverse()
+        else:
+            raise ValueError(f"Invalid _CPU_SHARES dict: {_CPU_SHARES}")
+    else:
+        raise ValueError(f"Invalid _CPU_SHARES type: {type(_CPU_SHARES)}")
+
+    for share in cpu_shares:
+        if share == cpu_shares[-1]:
+            debug(f"{process.name} {host.label} {nmns} Last CPU share: {share} ({to_break})")
         if to_break:
             # ASSUMPTION: we don't care when the host can no longer tolerate the app.
             # In this case we simply stop considering this host for further allocations, and we signal an infinite delay.
@@ -279,11 +290,11 @@ def _compute_gamma_tot_for_each_process_host_cpu_share(context: Context, cpu_sha
         Context: The updated context with precomputed gamma_tot values.
     """
     # Make sure cpu shares are descending
-    cpu_shares.sort(reverse=True)
     global _CPU_SHARES
     _CPU_SHARES = cpu_shares
+    if isinstance(_CPU_SHARES, list):
+        cpu_shares.sort(reverse=True)
     debug(f"Building gamma_tot with {_CPU_SHARES}")
-
 
     context.links["gamma_tot_precomputed"] = {}
 
@@ -305,6 +316,8 @@ def _compute_gamma_tot_for_each_process_host_cpu_share(context: Context, cpu_sha
                 ),
             ),
         )
+
+    debug("Done")
 
     # Flatten the list of results
     results = [item for sublist in results for item in sublist]
