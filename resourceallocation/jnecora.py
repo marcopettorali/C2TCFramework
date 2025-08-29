@@ -258,8 +258,6 @@ def _worker(process: Process, host: Host, nmns, context: Context):
         raise ValueError(f"Invalid _CPU_SHARES type: {type(_CPU_SHARES)}")
 
     for share in cpu_shares:
-        if share == cpu_shares[-1]:
-            debug(f"{process.name} {host.label} {nmns} Last CPU share: {share} ({to_break})")
         if to_break:
             # ASSUMPTION: we don't care when the host can no longer tolerate the app.
             # In this case we simply stop considering this host for further allocations, and we signal an infinite delay.

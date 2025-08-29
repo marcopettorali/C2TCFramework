@@ -110,12 +110,6 @@ class Process:
 
 
 @dataclass
-class ProcessSplit(Process):
-    split_name: str = None
-    parent_process_name: str = None
-
-
-@dataclass
 class Host:
     label: str = None
     cpu_ghz: float = None

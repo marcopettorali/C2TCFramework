@@ -107,20 +107,15 @@ def qtime(context: Context, gamma_exe, process: Process, host: Host, cpu_share, 
 if __name__ == "__main__":
     context = load_context(filename="configs/scenario1.json")
 
-    process = context.processes["P7"]
+    process = context.processes["P0"]
     host = context.hosts["BR0"]
-    cpu_share = 0.02
+    cpu_share = 2.4 / host.cpu_ghz
 
     gamma_exe = (
         process.application.benchmark.distribution.pdf * ((process.application.benchmark.cpu_ghz / host.cpu_ghz) * (1 / cpu_share))
     ).normalize()
 
-    from utils.logging import set_logging_level, LogLevel
-
-    set_logging_level(LogLevel.NONE)
-    process.mns = 50
-    qtime(context, gamma_exe, process, host, cache_index=f"{process.name}_{host.label}", g=4)
-
-    set_logging_level(LogLevel.ALL)
-    process.mns = 51
-    qtime(context, gamma_exe, process, host, cache_index=f"{process.name}_{host.label}", g=4)
+    for mns in range(1,13+1):
+        process.mns = mns   
+        gamma_que = qtime(context, gamma_exe, process, host, cpu_share, cache_index=f"{process.name}_{host.label}", g=4)
+        debug(mns, gamma_que)

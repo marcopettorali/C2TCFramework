@@ -45,6 +45,9 @@ _LOGGING_LEVEL = LogLevel.DEBUG
 
 def set_logging_level(level: LogLevel):
     global _LOGGING_LEVEL
+
+    if isinstance(level, str):
+        level = LogLevel[level.upper()]
     _LOGGING_LEVEL = level
 
 def _markdown_to_rich(text: str) -> str:
@@ -169,7 +172,7 @@ def info(*args, **kwargs):
 
 def focus(*args, **kwargs):
     if _LOGGING_LEVEL <= LogLevel.FOCUS:
-        _base_print("FOCUS", "bold green", *args, **kwargs)
+        _base_print("FOCUS", "green", *args, **kwargs)
 
 
 def warning(*args, **kwargs):
