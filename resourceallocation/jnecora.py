@@ -25,10 +25,9 @@ from pathlib import Path
 import numpy as np
 from tqdm import tqdm
 
-import networkx as nx
-
 from networking.entities import Host, Link, Process
 from resourceallocation.context import Context, load_context
+from resourceallocation.utils import find_paths
 from utils.distribution import Distribution
 from utils.dynamic_execute import dynamic_execute
 from utils.ga import ga_optimization
@@ -46,26 +45,6 @@ if "OMP_NUM_THREADS" not in os.environ or os.environ["OMP_NUM_THREADS"] != "1":
 PACKET_LOSS_MS = 10000
 MAX_PROCESSES_PER_HOST = 8
 MAX_MNS_PER_PROCESS = 50
-
-
-def _find_paths(graph, source, target):
-    """
-    Finds all simple paths between a source and target node in the graph.
-
-    Args:
-        graph (networkx.Graph): The topology graph.
-        source (str): The source node.
-        target (str): The target node.
-
-    Returns:
-        list: A list of paths, where each path is represented as a list of edges with source, destination, and link info.
-    """
-    all_shortest_paths = list(nx.all_simple_paths(graph, source, target))
-
-    # Convert paths to edges with labels
-    all_shortest_links = [[{"src": u, "dest": v, "info": graph[u][v]} for u, v in zip(path, path[1:])] for path in all_shortest_paths]
-
-    return all_shortest_links
 
 
 def _compute_end_to_end_communication_delays(context: Context):
