@@ -69,7 +69,7 @@ def _compute_end_to_end_communication_delays(context: Context):
 
     # compute all possible links
     for process, host in itertools.product(processes, hosts):
-        paths = _find_paths(topology_graph, process, host)
+        paths = find_paths(topology_graph, process, host)
         paths_distributions = []
         for path in paths:
             path_delay = Distribution.dirac_delta(0)
@@ -154,7 +154,7 @@ def compute_delay_at_min_reliability(context: Context, process: Process, host: H
     else:
         # compute the queuing time based on the number of MNs and the execution delay
         gamma_que = dynamic_execute(
-            host.qtime_dist_function, context, gamma_exe, process, host, cpu_share, cache_index=f"{process.name}_{host.label}"
+            host.qtime_dist_function, context, gamma_exe, process, host, cpu_share, cache_prefix=f"{process.name}_{host.label}"
         ).normalize()
 
         # if gamma_que is PACKET_LOSS_MS do not convolve (is a Dirac delta at PACKET_LOSS_MS)

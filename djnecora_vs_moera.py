@@ -29,6 +29,7 @@ for rep in range(NUM_REPETITIONS):
     # e.g. [P0, P1, P0, P2, P1] -> [(P0,0), (P1,0), (P0,1), (P2,0), (P1,1)]
     mns_list = [(p, sum(1 for x in mns_list[:i] if x == p)) for i, p in enumerate(mns_list)]
 
+
     
     
     

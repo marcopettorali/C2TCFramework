@@ -11,7 +11,7 @@ from time import time
 _QUEUING_TIME_CACHE = {}
 
 
-def _queuing_time_job(g_pmf, st_conv_at, n_mns, cpu_share, cache_index=None, i=0):
+def _queuing_time_job(g_pmf, st_conv_at, n_mns, cpu_share, cache_prefix=None, i=0):
     global _QUEUING_TIME_CACHE
     g_pmf.label = f"g_pmf_{i}"
 
@@ -20,12 +20,12 @@ def _queuing_time_job(g_pmf, st_conv_at, n_mns, cpu_share, cache_index=None, i=0
         return g_pmf
 
     # compute the cache key
-    cache_key = f"{cache_index}_{i}"
-    if cache_index is not None and cache_key in _QUEUING_TIME_CACHE:
+    cache_key = f"{cache_prefix}_{i}"
+    if cache_prefix is not None and cache_key in _QUEUING_TIME_CACHE:
         if cpu_share in _QUEUING_TIME_CACHE[cache_key]:
             # immediately call the next iteration
             g_pmf = _QUEUING_TIME_CACHE[cache_key][cpu_share]
-            return _queuing_time_job(g_pmf, st_conv_at, n_mns, cpu_share, cache_index, i + 1)
+            return _queuing_time_job(g_pmf, st_conv_at, n_mns, cpu_share, cache_prefix, i + 1)
 
         # else, if exists an entry with higher cpu share and has first percentile >= PACKET_LOSS_MS, return a dirac delta at PACKET_LOSS_MS
         higher_cpu_share = [k for k in _QUEUING_TIME_CACHE[cache_key] if k > cpu_share]
@@ -40,7 +40,6 @@ def _queuing_time_job(g_pmf, st_conv_at, n_mns, cpu_share, cache_index=None, i=0
     # if the first percentile == PACKET_LOSS_MS, return a dirac delta at PACKET_LOSS_MS
     first_percentile = g_pmf.percentile(1)
     if first_percentile >= PACKET_LOSS_MS:
-        # print(f"Queuing time is out-of-scale for ({cache_index}, {n_mns}, {i}), returning a dirac delta at {PACKET_LOSS_MS}ms", style="warning")
         g_pmf = Distribution.dirac_delta(PACKET_LOSS_MS)
         if not cache_key in _QUEUING_TIME_CACHE:
             _QUEUING_TIME_CACHE[cache_key] = {}
@@ -69,13 +68,13 @@ def _queuing_time_job(g_pmf, st_conv_at, n_mns, cpu_share, cache_index=None, i=0
         _QUEUING_TIME_CACHE[cache_key] = {}
     _QUEUING_TIME_CACHE[cache_key][cpu_share] = g_pmf
 
-    return _queuing_time_job(g_pmf, st_conv_at, n_mns, cpu_share, cache_index, i + 1)
+    return _queuing_time_job(g_pmf, st_conv_at, n_mns, cpu_share, cache_prefix, i + 1)
 
 
 _ST_CONV_AT_CACHE = {}
 
 
-def _queuing_time_sddu_model(service_time_prob, n_mns, cpu_share, g, cache_index=None):
+def _queuing_time_sddu_model(service_time_prob, n_mns, cpu_share, g, cache_prefix=None):
     global _ST_CONV_AT_CACHE
 
     service_time_prob.label = "service_time"
@@ -84,23 +83,24 @@ def _queuing_time_sddu_model(service_time_prob, n_mns, cpu_share, g, cache_index
     at_minus_pmf = Distribution.dirac_delta(-spacing_ms)
 
     # find st_conv_at in the cache
-    if cache_index in _ST_CONV_AT_CACHE:
-        st_conv_at = _ST_CONV_AT_CACHE[cache_index]
+    cache_key = f"{cache_prefix}_{cpu_share}"
+    if cache_key in _ST_CONV_AT_CACHE:
+        st_conv_at = _ST_CONV_AT_CACHE[cache_key]
     else:
         # convolve the service time with the negative spacing
         st_conv_at = service_time_prob + at_minus_pmf
-        _ST_CONV_AT_CACHE[cache_index] = st_conv_at
+        _ST_CONV_AT_CACHE[cache_key] = st_conv_at
 
     # start with the first g_pmf
     g_pmf = Distribution.dirac_delta(0)
 
-    ret = _queuing_time_job(g_pmf, st_conv_at, n_mns, cpu_share, cache_index)
-
+    ret = _queuing_time_job(g_pmf, st_conv_at, n_mns, cpu_share, cache_prefix)
+ 
     return ret
 
 
-def qtime(context: Context, gamma_exe, process: Process, host: Host, cpu_share, cache_index=None, g=None):
-    ret = _queuing_time_sddu_model(gamma_exe, process.mns, cpu_share, g, cache_index)
+def qtime(context: Context, gamma_exe, process: Process, host: Host, cpu_share, cache_prefix=None, g=None):
+    ret = _queuing_time_sddu_model(gamma_exe, process.mns, cpu_share, g, cache_prefix)
     return ret
 
 
@@ -115,7 +115,7 @@ if __name__ == "__main__":
         process.application.benchmark.distribution.pdf * ((process.application.benchmark.cpu_ghz / host.cpu_ghz) * (1 / cpu_share))
     ).normalize()
 
-    for mns in range(1,13+1):
-        process.mns = mns   
-        gamma_que = qtime(context, gamma_exe, process, host, cpu_share, cache_index=f"{process.name}_{host.label}", g=4)
+    for mns in range(1, 13 + 1):
+        process.mns = mns
+        gamma_que = qtime(context, gamma_exe, process, host, cpu_share, cache_prefix=f"{process.name}_{host.label}", g=4)
         debug(mns, gamma_que)

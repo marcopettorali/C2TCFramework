@@ -13,11 +13,11 @@ process: Process
 for process_name, process in context.processes.items():
     max_delay_ms = process.max_delay_ms
 
-    for (p, h, c, m), g in context.links["gamma_tot_precomputed"].items():
-        mns = 10
-        if p == process_name and h == host.label and g <= max_delay_ms and m == mns:
-            print(f"Process: {p}, Host: {h}, CPU Share: {c:<.2f}, CPU GHz: {c * host.cpu_ghz:<.2f}, MNs: {m}, Delay: {g:<.2f}")
-    exit()
+    # for (p, h, c, m), g in context.links["gamma_tot_precomputed"].items():
+    #     mns = 10
+    #     if p == process_name and h == host.label and g <= max_delay_ms and m == mns:
+    #         print(f"Process: {p}, Host: {h}, CPU Share: {c:<.2f}, CPU GHz: {c * host.cpu_ghz:<.2f}, MNs: {m}, Delay: {g:<.2f}")
+    # exit()
 
     for mns in range(1, MAX_MNS + 1):
 
