@@ -15,7 +15,7 @@ class ProcessSplit:
     num_mns: int
     cpu_share: float
 
-    def __repr__(self):  # keep your readable repr
+    def __repr__(self):
         return f"{self.process_name}({self.num_mns}/{self.cpu_share*100:.2f}%)"
 
 
@@ -210,6 +210,11 @@ class DJNecora(JNecora):
         debug(f"Process allocation table: {self._allocation_table_per_host}")
         debug(f"Available resources: {self._available_resources_per_host}")
         info(f"**Process {process_name} allocation complete**: allocated {allocated_mns}/{process.mns} MNs, {num_splits} splits created")
+        
+        # Return True if at least one MN was allocated
+        if allocated_mns == 0:
+            return False
+        return True
 
     def add_1_mn_to_process(self, process_name: str):
         if process_name not in self.context.processes:
@@ -260,7 +265,7 @@ class DJNecora(JNecora):
         debug(f"Candidates after preferring infinite parallelism: {candidates}")
         if not candidates:
             info(f"No candidate hosts available for adding 1 MN to process {process_name}")
-            return
+            return False
 
         # Select the best candidate
         selected = self._selection_policy(candidates)
@@ -272,6 +277,7 @@ class DJNecora(JNecora):
         info(f"--- **1 MN added** for process {process_name} on host {selected['host_label']} {'' if not new_split else f'(new split created)'} ---")
         debug(f"Process allocation table: {self._allocation_table_per_host}")
         debug(f"Available resources: {self._available_resources_per_host}")
+        return True
 
     def __str__(self):
         at = ",\n".join(f'\t\t"{h}": {pls}' for h, pls in self._allocation_table_per_host.items())

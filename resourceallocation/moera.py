@@ -47,10 +47,9 @@ Adaptations we made to MOERA to compare it with DJ-NECORA:
 
 import itertools
 from networking.entities import Link
-from resourceallocation.context import Context, load_context
+from resourceallocation.context import Context
 from resourceallocation.utils import find_paths
-from utils.distribution import Distribution
-from utils.logging import print
+from utils.logging import debug, info
 
 
 def _compute_average_end_to_end_communication_delays(context: Context):
@@ -167,13 +166,12 @@ class MOERA:
             )
 
             target_delay = process.max_delay_ms - avg_network_delay
-            print(target_delay)
             min_cpu_ghz = exponential_search(gamma_func, target_delay, tolerance=0.1)
 
             self._process_CPU_demand[process_name] = min_cpu_ghz
 
         cpu_demand = self._process_CPU_demand[process_name]
-        print(f"Process {process_name} requires {cpu_demand:.2f} GHz")
+        debug(f"Process {process_name} requires {cpu_demand:.2f} GHz")
 
         # iterate all hosts, and find the one with minimum cost
         host_costs = {}
@@ -181,7 +179,7 @@ class MOERA:
             # Check if the host can host the process
             cpu_utilized = cpu_demand + sum(v["allocated_cpu"] for v in self._allocation_map.get(host_name, []))
             if cpu_utilized > host.cpu_ghz:
-                print(f"  Host {host_name} cannot host process {process_name} (not enough CPU)")
+                debug(f"  Host {host_name} cannot host process {process_name} (not enough CPU)")
                 continue
             allocation_cost = 0
             # E_O = CPU usage on the host + CPU usage on this host
@@ -191,18 +189,23 @@ class MOERA:
             E_Q = self.context.links["gamma_com"][(process_name, host_name)]
             allocation_cost = E_Q
             host_costs[host_name] = allocation_cost
-            print(f"  Host {host_name} cost: E_Q={E_Q:.2f} = {allocation_cost:.2f}")
+            debug(f"  Host {host_name} cost: E_Q={E_Q:.2f} = {allocation_cost:.2f}")
         # select the host with minimum cost (if any)
         selected_host = min(host_costs, key=host_costs.get, default=None)
         if selected_host is None:
-            print(f"No host can host process {process_name} (not enough CPU)")
+            info(f"No host can host process {process_name} (not enough CPU)")
             return
-        print(f"Selected host for process {process_name}: {selected_host} with cost {host_costs[selected_host]:.2f}")
+        info(f"Selected host for process {process_name}: {selected_host} with cost {host_costs[selected_host]:.2f}")
+
+        # Compute the CPU share for the process on the selected host
+        cpu_share = cpu_demand / self.context.hosts[selected_host].cpu_ghz
+        debug(f"CPU share for process {process_name} on host {selected_host}: {cpu_share*100:.2f}%")
+
         if selected_host not in self._allocation_map:
             self._allocation_map[selected_host] = []
-        self._allocation_map[selected_host].append({"process": process_name, "allocated_cpu": cpu_demand})
-        print(f"Allocation map: {self._allocation_map}")
-        print("-----")
+        self._allocation_map[selected_host].append({"process_name": process_name, "num_mns":1, "cpu_share": cpu_share, "allocated_cpu": cpu_demand})
+        debug(f"Allocation map: {self._allocation_map}")
+        debug("-----")
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@ from utils.logging import focus, info, set_logging_level
 SCENARIO = "scenario1"
 NUM_REPETITIONS = 50
 
-splitting_policies = ["no_splitting"]  # , "lazy_splitting", "greedy_splitting"]
+splitting_policies = ["no_splitting"]  
 selection_policies = ["first_fit", "next_fit", "best_fit", "worst_fit", "random_fit"]
 
 # check if results file already exists
