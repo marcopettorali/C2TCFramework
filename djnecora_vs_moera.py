@@ -16,6 +16,8 @@ selection_policies = ["first_fit", "next_fit", "best_fit", "worst_fit", "random_
 
 results_file = f"out/djnecora_vs_moera_{SCENARIO}.json"
 
+set_logging_level("focus")
+
 
 def _worker(rep_index):
     focus(f"--- REPETITION {rep_index + 1}/{NUM_REPETITIONS} ---")
@@ -69,7 +71,9 @@ def _worker(rep_index):
                         allocation_status[sp][cp][process_name] = ret
                         focus(f"\t\tDJNecora ({sp}, {cp}): adding 1 MN to process {process_name}: **{'succeeded' if ret else 'failed'}**")
                     else:
-                        focus(f"\t\tDJNecora ({sp}, {cp}): skipping allocation of MN {mn_index} of process {process_name} since previous MNs could not be allocated")
+                        focus(
+                            f"\t\tDJNecora ({sp}, {cp}): skipping allocation of MN {mn_index} of process {process_name} since previous MNs could not be allocated"
+                        )
 
     # store results
     ret_dict = {}
