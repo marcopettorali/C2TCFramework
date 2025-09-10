@@ -96,21 +96,7 @@ def _compute_end_to_end_communication_delays(context: Context):
     return context
 
 
-_DISABLE_CACHE = False
-
-
-def disable_cache():
-    """
-    Disables the caching mechanism for delay computations.
-    """
-    global _DISABLE_CACHE
-    _DISABLE_CACHE = True
-
-
 _DELAY_CACHE = {}
-
-
-import time
 
 
 def compute_delay_at_min_reliability(context: Context, process: Process, host: Host, cpu_share: float):
@@ -180,10 +166,9 @@ def compute_delay_at_min_reliability(context: Context, process: Process, host: H
     delay_at_min_reliability -= 1.5
 
     # store the result in the cache
-    if not _DISABLE_CACHE and cache_key not in _DELAY_CACHE:
+    if cache_key not in _DELAY_CACHE:
         _DELAY_CACHE[cache_key] = {}
-    if not _DISABLE_CACHE:
-        _DELAY_CACHE[cache_key][cpu_share] = delay_at_min_reliability
+    _DELAY_CACHE[cache_key][cpu_share] = delay_at_min_reliability
 
     # return the delay at the min reliability percentile
     return delay_at_min_reliability
