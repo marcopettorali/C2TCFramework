@@ -40,7 +40,7 @@ class DJNecora(JNecora):
         pickle_context: bool = True,
         pickle_folder_relative_path: str = "pickles/djnecora",
         # _cpu_shares=list([float(x) for x in np.linspace(0, 1, 51)][1:]),
-        _cpu_shares={"cpu_ghz_precision": 0.1},  # 100 MHz precision
+        _cpu_shares={"cpu_ghz_precision": 0.01},  # 10 MHz precision
     ):
         return JNecora.load_context_from_file(config_path, pickle_context, pickle_folder_relative_path, _cpu_shares=_cpu_shares)
 
@@ -263,6 +263,7 @@ class DJNecora(JNecora):
 
         candidates = self._prefer_infinite_parallelism(candidates)
         debug(f"Candidates after preferring infinite parallelism: {candidates}")
+        
         if not candidates:
             info(f"No candidate hosts available for adding 1 MN to process {process_name}")
             return False
