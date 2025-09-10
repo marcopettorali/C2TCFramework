@@ -72,7 +72,8 @@ def _worker(rep_index):
                         focus(f"\t\tDJNecora ({sp}, {cp}): skipping allocation of MN {mn_index} of process {process_name} since previous MNs could not be allocated")
 
     # store results
-    ret["MOERA"] = moera._allocation_map
+    ret_dict = {}
+    ret_dict["MOERA"] = moera._allocation_map
     for sp in splitting_policies:
         for cp in selection_policies:
             ret[f"DJ-NECORA.{sp}.{cp}"] = djnecora_dict[sp][cp]._allocation_table_per_host
