@@ -80,8 +80,8 @@ def _worker(rep_index):
     ret_dict["MOERA"] = moera._allocation_map
     for sp in splitting_policies:
         for cp in selection_policies:
-            ret[f"DJ-NECORA.{sp}.{cp}"] = djnecora_dict[sp][cp]._allocation_table_per_host
-    return ret
+            ret_dict[f"DJ-NECORA.{sp}.{cp}"] = djnecora_dict[sp][cp]._allocation_table_per_host
+    return ret_dict
 
 
 def run_experiments():
