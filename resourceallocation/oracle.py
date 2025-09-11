@@ -1,159 +1,153 @@
-from typing import Dict, Iterable, Tuple, Any
+from typing import Dict, Tuple, Any
+from collections import defaultdict
 from ortools.sat.python import cp_model
+import itertools, argparse, sys, json, os
+from argparse import RawTextHelpFormatter
 
 _INFINITY = 1_000_000_000
 
+
 def solve_mn_allocation(
-    min_cpu_dict: Dict[Tuple[Any, Any, int], float],  # (p,h,m) -> cpu_percent_needed
-    host_capacities_perc: Dict[Any, float],                            # h -> cpu_capacity_percent
+    min_cpu_dict: Dict[Tuple[Any, Any, int], float],
+    host_capacities_perc: Dict[Any, float],
+    allocation_mode="max_mns",
+    splitting_mode="optimal",
     time_limit_seconds: float | None = None,
 ):
-    """
-    Maximize total MNs allocated subject to per-host CPU capacities.
+    """Solve MN allocation with OR-Tools CP-SAT."""
+    if allocation_mode not in ["max_mns", "max_apps_max_mns"]:
+        raise ValueError(f"Unsupported allocation_mode {allocation_mode}")
+    if splitting_mode not in ["optimal", "disabled"]:
+        raise ValueError(f"Unsupported splitting_mode {splitting_mode}")
 
-    Decision:
-      For each (p,h), choose exactly one m in available Ms (ideally 0..MAX_M).
-      Binary var y[p,h,m] = 1 if level m is chosen for (p,h), else 0.
-
-    Constraints:
-      - Exactly one m per (p,h):  sum_m y[p,h,m] = 1
-      - Host capacity:            sum_p sum_m cpu(p,h,m) * y[p,h,m] <= C[h]
-
-    Objective:
-      Maximize sum_p sum_h sum_m m * y[p,h,m]
-    """
     processes, hosts, _ = map(set, zip(*min_cpu_dict.keys()))
-    processes = sorted(list(processes))
-    hosts = sorted(list(hosts))
+    processes, hosts = sorted(processes), sorted(hosts)
 
-    # Build available m values for each (p,h) from min_cpu_dict keys
-    available_m: Dict[Tuple[Any, Any], list[int]] = {}
-    for (p, h, m), c in min_cpu_dict.items():
-        if (p, h) not in available_m:
-            available_m[(p, h)] = []
+    # Collect available m for each (p,h)
+    available_m = defaultdict(list)
+    for (p, h, m), _ in min_cpu_dict.items():
         available_m[(p, h)].append(m)
 
-    # Basic sanity: ensure every (p,h) has at least one option
-    for p in processes:
-        for h in hosts:
-            if (p, h) not in available_m:
-                raise ValueError(f"No gamma entries provided for pair (p={p}, h={h}). "
-                                 f"Include at least m=0 with cpu=0 if unsupported.")
-
-    # Model
     model = cp_model.CpModel()
+    # Decision vars: y[p,h,m] = 1 if we allocate m MNs of process p on host h
+    y = {(p, h, m): model.NewBoolVar(f"y_{p}_{h}_{m}") for (p, h), ms in available_m.items() for m in ms}
 
-    # Decision vars
-    y = {}
-    for p in processes:
-        for h in hosts:
-            for m in available_m[(p, h)]:
-                if (p, h, m) not in min_cpu_dict:
-                    continue
-                y[(p, h, m)] = model.NewBoolVar(f"y_p{p}_h{h}_m{m}")
-
-    # Exactly-one per (p,h)
-    for p in processes:
-        for h in hosts:
-            vars_for_pair = [y[(p, h, m)] for m in available_m[(p, h)] if (p, h, m) in y]
-            if not vars_for_pair:
-                raise ValueError(f"No valid decision variables for (p={p}, h={h}).")
-            model.Add(sum(vars_for_pair) == 1)
+    # Exactly one choice per (p,h)
+    for (p, h), ms in available_m.items():
+        model.Add(sum(y[(p, h, m)] for m in ms) == 1)
 
     # Host capacity constraints
     for h in hosts:
-        if h not in host_capacities_perc:
-            raise ValueError(f"Missing capacity C[{h}]")
-        cpu_terms = []
+        terms = [int(round(min_cpu_dict[(p, h, m)] * 100)) * y[(p, h, m)] for p in processes for m in available_m[(p, h)]]
+        cap = host_capacities_perc.get(h, 0.0)
+        model.Add(sum(terms) <= int(round((cap if cap != float("inf") else _INFINITY) * 100)))
+
+    # Splitting disabled: one host per process
+    if splitting_mode == "disabled":
         for p in processes:
-            for m in available_m[(p, h)]:
-                if (p, h, m) in y:
-                    cpu_required = min_cpu_dict[(p, h, m)]
-                    # OR-Tools CP-SAT uses integers; scale to avoid floating issues.
-                    # Here we scale by 100 to support percentages with two decimals.
-                    cpu_terms.append((int(round(cpu_required * 100)), y[(p, h, m)]))
-        model.Add(
-            sum(coeff * var for coeff, var in cpu_terms)
-            <= int(round((host_capacities_perc[h] if host_capacities_perc[h] != float("inf") else _INFINITY) * 100))
-        )
+            uses = []
+            for h in hosts:
+                z = model.NewBoolVar(f"use_{p}_{h}")
+                (
+                    model.AddMaxEquality(z, [y[(p, h, m)] for m in available_m[(p, h)] if m > 0])
+                    if any(m > 0 for m in available_m[(p, h)])
+                    else model.Add(z == 0)
+                )
+                uses.append(z)
+            model.Add(sum(uses) <= 1)
 
-    # Objective: maximize total MNs allocated
-    obj_terms = []
-    for (p, h, m), var in y.items():
-        obj_terms.append(m * var)
-    model.Maximize(sum(obj_terms))
+    # Objective
+    total_mns = sum(m * var for (p, h, m), var in y.items())
+    if allocation_mode == "max_mns":
+        model.Maximize(total_mns)
+    else:
+        app_served = {p: model.NewBoolVar(f"app_{p}") for p in processes}
+        for p in processes:
+            (
+                model.AddMaxEquality(app_served[p], [y[(p, h, m)] for h in hosts for m in available_m[(p, h)] if m > 0])
+                if any(m > 0 for h in hosts for m in available_m[(p, h)])
+                else model.Add(app_served[p] == 0)
+            )
+        BIG = 10**6
+        model.Maximize(BIG * sum(app_served.values()) + total_mns)
 
-    # Optional time limit
     solver = cp_model.CpSolver()
-    if time_limit_seconds is not None:
+    if time_limit_seconds:
         solver.parameters.max_time_in_seconds = float(time_limit_seconds)
-    # A bit more search aggressiveness helps on larger instances
     solver.parameters.num_search_workers = 8
-
     status = solver.Solve(model)
 
-    result = {
+    # Build results
+    res = {
         "status": solver.StatusName(status),
-        "objective_value": None,
-        "selected_m_by_pair": {},   # (p,h) -> m*
-        "host_cpu_usage": {},       # h -> used CPU (same unit as C[h])
-        "host_cpu_slack": {},       # h -> slack CPU
-        "total_MNs": None,
+        "selected_m_by_pair": {},
+        "host_cpu_usage": {},
+        "host_cpu_slack": {},
+        "total_MNs": 0,
+        "total_apps_served": None if allocation_mode == "max_mns" else 0,
     }
-
     if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-        chosen = {}
-        total_MNs = 0
-        host_used_scaled = {h: 0 for h in hosts}
-
+        host_used = {h: 0 for h in hosts}
         for p in processes:
             for h in hosts:
-                chosen_m = None
-                # Find the m with y=1
                 for m in available_m[(p, h)]:
-                    key = (p, h, m)
-                    if key in y and solver.Value(y[key]) == 1:
-                        chosen_m = m
-                        total_MNs += m
-                        host_used_scaled[h] += int(round(min_cpu_dict[(p, h, m)] * 100))
+                    if solver.Value(y[(p, h, m)]) == 1:
+                        res["selected_m_by_pair"][(p, h)] = m
+                        res["total_MNs"] += m
+                        host_used[h] += int(round(min_cpu_dict[(p, h, m)] * 100))
                         break
-                chosen[(p, h)] = chosen_m
-
-        result["selected_m_by_pair"] = chosen
-        result["objective_value"] = total_MNs
-        result["total_MNs"] = total_MNs
         for h in hosts:
-            used = host_used_scaled[h] / 100.0
-            result["host_cpu_usage"][h] = used
-            result["host_cpu_slack"][h] = host_capacities_perc[h] - used
+            res["host_cpu_usage"][h] = host_used[h] / 100.0
+            res["host_cpu_slack"][h] = host_capacities_perc[h] - res["host_cpu_usage"][h]
+        if allocation_mode == "max_apps_max_mns":
+            res["total_apps_served"] = sum(1 for p in processes if any(res["selected_m_by_pair"][(p, h)] > 0 for h in hosts))
+    return res
 
-    return result
 
-
-# --------------------------
-# Minimal example (remove/replace with your data)
 if __name__ == "__main__":
-    P = ["P1", "P2"]
-    hosts = ["H1", "H2"]
-    MAX_M = 3
+    # CLI interface
+    parser = argparse.ArgumentParser(
+        description="J-NECORA: Resource allocation for C2TC (2024, Marco Pettorali)\nM. Pettorali, F. Righetti, C. Vallati, S. K. Das and G. Anastasi, \"J-NECORA: A Framework for Optimal Resource Allocation in Cloud-Edge-Things Continuum for Industrial Applications With Mobile Nodes,\" in IEEE Internet of Things Journal, vol. 12, no. 11, pp. 16525-16542, 1 June1, 2025, doi: 10.1109/JIOT.2025.3536700.\nhttps://ieeexplore.ieee.org/document/10886960",
+        formatter_class=RawTextHelpFormatter,
+    )
+    parser.add_argument("scenario_name", type=str, help="Scenario name relative to configs/")
+    parser.add_argument(
+        "--result-path", type=str, default="results.json", help="Path of the json file where to save results (relative to out/)"
+    )
+    parser.add_argument(
+        "--allocation-mode", choices=["max_mns", "max_apps_max_mns"], default="max_mns", help="Allocation mode (default: max_mns)"
+    )
+    parser.add_argument(
+        "--splitting-mode", choices=["optimal", "disabled"], default="optimal", help="Allow or forbid process splitting across hosts"
+    )
+    args = parser.parse_args()
 
-    # min_cpu_dict[(p,h,m)] = required CPU%
-    min_cpu_dict = {
-        ("P1", "H1", 0): 0.0, ("P1", "H1", 1): 10.0, ("P1", "H1", 2): 19.0, ("P1", "H1", 3): 30.0,
-        ("P1", "H2", 0): 0.0, ("P1", "H2", 1): 12.0, ("P1", "H2", 2): 20.0, ("P1", "H2", 3): 34.0,
-        ("P2", "H1", 0): 0.0, ("P2", "H1", 1): 11.0, ("P2", "H1", 2): 21.0, ("P2", "H1", 3): 28.0,
-        ("P2", "H2", 0): 0.0, ("P2", "H2", 1): 9.0,  ("P2", "H2", 2): 18.0, ("P2", "H2", 3): 27.0,
-    }
+    # Load context
+    from resourceallocation.jnecora import JNecora
+    from utils.logging import info  # adjust import path
 
-    # host capacities (% CPU available)
-    C = {"H1": 40.0, "H2": 45.0}
+    context = JNecora.load_context_from_file(f"configs/{args.scenario_name}.json")
+    MAX_MNS = 13
 
-    res = solve_mn_allocation(P, hosts, MAX_M, min_cpu_dict, C, time_limit_seconds=10)
-    print("Status:", res["status"])
-    print("Total MNs:", res["total_MNs"])
-    print("Selected (p,h)->m:")
-    for (p, h), m in res["selected_m_by_pair"].items():
-        print(f"  ({p},{h}) -> m={m}")
-    print("Host usage/slack:")
-    for h in hosts:
-        print(f"  {h}: used={res['host_cpu_usage'][h]}%, slack={res['host_cpu_slack'][h]}%")
+    # Build min_cpu_dict
+    min_cpu_dict = {(p, h, 0): 0.0 for p, h in itertools.product(context.processes, context.hosts)}
+    for p, h in itertools.product(context.processes, context.hosts):
+        max_delay_ms = context.processes[p].max_delay_ms
+        tmp = defaultdict(list)
+        for (pp, hh, cpu, mns), val in context.links["gamma_tot_precomputed"].items():
+            if pp == p and hh == h and val <= max_delay_ms and mns <= MAX_MNS:
+                tmp[mns].append(cpu)
+        for k, vals in tmp.items():
+            if vals:
+                min_cpu_dict[(p, h, k)] = min(vals)
+
+    host_caps = {h: float("inf") if host.infinite_parallelism else 1.0 for h, host in context.hosts.items()}
+    ret = solve_mn_allocation(min_cpu_dict, host_caps, allocation_mode=args.allocation_mode, splitting_mode=args.splitting_mode)
+
+    info(ret)
+    split_by_host = {h: [] for h in context.hosts}
+    for (p, h), m in ret["selected_m_by_pair"].items():
+        if m > 0:
+            split_by_host[h].append((p, m, float(min_cpu_dict[(p, h, m)])))
+    info(split_by_host)
+

@@ -44,7 +44,7 @@ if "OMP_NUM_THREADS" not in os.environ or os.environ["OMP_NUM_THREADS"] != "1":
 # GLOBAL VARIABLES (WATCH OUT!)
 PACKET_LOSS_MS = 10000
 MAX_PROCESSES_PER_HOST = 8
-MAX_MNS_PER_PROCESS = 50
+MAX_MNS_PER_PROCESS = 13
 
 
 def _compute_end_to_end_communication_delays(context: Context):
@@ -683,13 +683,13 @@ if __name__ == "__main__":
 
     # if the optimal solution is not found, try with the best-effort solution
     if not solution:
-        info("No optimal solution found. Trying with the best-effort solution", style="warning")
+        info("No optimal solution found. Trying with the best-effort solution")
         ret = jnecora.allocate_all_processes_besteffort()
         solution, value = ret
 
     # print the solution
-    debug(f"Best solution: {solution}", style="debug")
-    debug(f"Best value: {value}", style="debug")
+    debug(f"Best solution: {solution}")
+    debug(f"Best value: {value}")
 
     # put the allocated CPU share and the max number of MNs in the solution
     new_solution = []
