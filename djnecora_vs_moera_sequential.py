@@ -9,7 +9,8 @@ SCENARIO = "scenario1"
 NUM_REPETITIONS = 50
 MAX_MNS = -1 #13  # set to -1 to allocate all MNs of each process
 
-context = DJNecora.load_context_from_file(f"configs/{SCENARIO}.json")
+# set coarse grain
+context = DJNecora.load_context_from_file(f"configs/{SCENARIO}.json", _cpu_shares={"cpu_ghz_precision": 0.1})
 
 splitting_policies = ["no_splitting", "lazy_splitting", "greedy_splitting"]
 selection_policies = ["first_fit", "next_fit", "best_fit", "worst_fit", "random_fit"]
