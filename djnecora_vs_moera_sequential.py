@@ -7,7 +7,7 @@ from utils.logging import focus, info, set_logging_level
 
 SCENARIO = "scenario1"
 NUM_REPETITIONS = 50
-MAX_MNS = 13  # set to -1 to allocate all MNs of each process
+MAX_MNS = -1 #13  # set to -1 to allocate all MNs of each process
 
 context = DJNecora.load_context_from_file(f"configs/{SCENARIO}.json")
 
