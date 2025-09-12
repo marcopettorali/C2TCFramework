@@ -51,5 +51,8 @@
             ]
         ],
         8
-    ]
-}
+    ],
+    "scenario1": {
+        "allocation": {
+            "status": "OPTIMAL",
+            "selected_m_by_pair": {

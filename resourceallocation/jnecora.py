@@ -44,7 +44,7 @@ if "OMP_NUM_THREADS" not in os.environ or os.environ["OMP_NUM_THREADS"] != "1":
 # GLOBAL VARIABLES (WATCH OUT!)
 PACKET_LOSS_MS = 10000
 MAX_PROCESSES_PER_HOST = 8
-MAX_MNS_PER_PROCESS = 50
+MAX_MNS_PER_PROCESS = 13
 
 
 def _compute_end_to_end_communication_delays(context: Context):
@@ -96,21 +96,7 @@ def _compute_end_to_end_communication_delays(context: Context):
     return context
 
 
-_DISABLE_CACHE = False
-
-
-def disable_cache():
-    """
-    Disables the caching mechanism for delay computations.
-    """
-    global _DISABLE_CACHE
-    _DISABLE_CACHE = True
-
-
 _DELAY_CACHE = {}
-
-
-import time
 
 
 def compute_delay_at_min_reliability(context: Context, process: Process, host: Host, cpu_share: float):
@@ -180,10 +166,9 @@ def compute_delay_at_min_reliability(context: Context, process: Process, host: H
     delay_at_min_reliability -= 1.5
 
     # store the result in the cache
-    if not _DISABLE_CACHE and cache_key not in _DELAY_CACHE:
+    if cache_key not in _DELAY_CACHE:
         _DELAY_CACHE[cache_key] = {}
-    if not _DISABLE_CACHE:
-        _DELAY_CACHE[cache_key][cpu_share] = delay_at_min_reliability
+    _DELAY_CACHE[cache_key][cpu_share] = delay_at_min_reliability
 
     # return the delay at the min reliability percentile
     return delay_at_min_reliability
@@ -698,13 +683,13 @@ if __name__ == "__main__":
 
     # if the optimal solution is not found, try with the best-effort solution
     if not solution:
-        info("No optimal solution found. Trying with the best-effort solution", style="warning")
+        info("No optimal solution found. Trying with the best-effort solution")
         ret = jnecora.allocate_all_processes_besteffort()
         solution, value = ret
 
     # print the solution
-    debug(f"Best solution: {solution}", style="debug")
-    debug(f"Best value: {value}", style="debug")
+    debug(f"Best solution: {solution}")
+    debug(f"Best value: {value}")
 
     # put the allocated CPU share and the max number of MNs in the solution
     new_solution = []
