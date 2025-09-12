@@ -14,7 +14,7 @@ def solve_mn_allocation(
     splitting_mode="optimal",
     time_limit_seconds: float | None = None,
 ):
-    """Solve MN allocation with OR-Tools CP-SAT."""
+    # Guard conditions
     if allocation_mode not in ["max_mns", "max_apps_max_mns"]:
         raise ValueError(f"Unsupported allocation_mode {allocation_mode}")
     if splitting_mode not in ["optimal", "disabled"]:

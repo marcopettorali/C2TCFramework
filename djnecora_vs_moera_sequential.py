@@ -3,7 +3,7 @@ from resourceallocation.moera import MOERA
 from resourceallocation.djnecora import DJNecora
 import copy
 import random
-from utils.logging import focus, set_logging_level
+from utils.logging import focus, info, set_logging_level
 
 SCENARIO = "scenario1"
 NUM_REPETITIONS = 50
@@ -113,18 +113,28 @@ def plot_results():
             allocation = results[alg][rep_index]
             total_mns = 0
             for br in allocation:
+                if br == "CN":
+                    continue
                 for split in range(len(allocation[br])):
                     total_mns += allocation[br][split]["num_mns"]
             data[alg].append(total_mns)
+
+    info(data)
 
     # compute mean confidence intervals for each algorithm
     from utils.stats import mean_confidence_interval, avg, ci_err
 
     data = {alg: (avg(x := mean_confidence_interval(data[alg])), ci_err(x)) for alg in algorithms}
 
+    # Add oracle results
+    data["Oracle"] = (75, 0)
+    algorithms.append("Oracle")
+
     def _get_color(alg_name):
         if alg_name == "MOERA":
             return "gray"
+        elif alg_name == "Oracle":
+            return "black"
         elif "no_splitting" in alg_name:
             return "#80b1d3"
         elif "lazy_splitting" in alg_name:
@@ -146,6 +156,8 @@ def plot_results():
         elif "random_fit" in alg_name:
             return "oo"
         elif alg_name == "MOERA":
+            return ""
+        elif alg_name == "Oracle":
             return ""
         else:
             raise ValueError(f"Unknown algorithm name {alg_name}")
