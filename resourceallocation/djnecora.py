@@ -5,6 +5,8 @@ from utils.logging import error, debug, info
 import random
 from dataclasses import dataclass
 
+PRECISION_DECIMALS = 5
+
 # set constant random seed for reproducibility
 random.seed(42)
 
@@ -72,7 +74,7 @@ class DJNecora(JNecora):
                 if p == process_name
                 and h == host_label
                 and g <= max_delay_ms
-                and c <= available_cpu_share + (split.cpu_share if split else 0)
+                and c <= np.round(available_cpu_share + (split.cpu_share if split else 0), PRECISION_DECIMALS)
                 and m <= need_mns + (split.num_mns if split else 0)
                 and m >= (split.num_mns if split else 1)
             ),
@@ -112,6 +114,10 @@ class DJNecora(JNecora):
 
     def _selection_policy(self, candidates: list[dict]):
         key = lambda x: self._available_resources_per_host[x["host_label"]]["cpu_share"] - x["cpu_share"]
+        key = (
+            lambda x: self._available_resources_per_host[x["host_label"]]["cpu_share"] * self.context.hosts[x["host_label"]].cpu_ghz
+        )  # in GHz
+        candidates = sorted(candidates, key=lambda x: x["host_label"])  # to have deterministic behavior with random
         policy = {
             "first_fit": lambda cands: cands[0],
             "next_fit": lambda cands: cands[1] if len(cands) > 1 else cands[0],
@@ -132,7 +138,7 @@ class DJNecora(JNecora):
             self._available_resources_per_host[host]["cpu_share"] -= selected["cpu_share"]
             debug(f"Merged with existing split on host {host}: {split}")
             return False  # No new split created
-        
+
         # If there was no split, we create a new one
         ps = ProcessSplit(process_name, selected["supported_mns"], selected["cpu_share"])
         self._allocation_table_per_host[host].append(ps)
@@ -162,32 +168,32 @@ class DJNecora(JNecora):
 
             # Iterate over all hosts to find suitable candidates
             candidates = []
-            for h, host in self.context.hosts.items():
-                debug(f"\t--- **Host {h}** ---")
-                
-                available = self._available_resources_per_host[h]
+            for host_label, host in self.context.hosts.items():
+                debug(f"\t--- **Host {host_label}** ---")
+
+                available = self._available_resources_per_host[host_label]
                 debug(f"\tAvailable resources: {available}")
 
-                split = self._get_split_on_host(process_name, h)
-                debug(f"\tExisting split: {split}" if split else f"\tNo existing split for {process_name} on host {h}")
+                split = self._get_split_on_host(process_name, host_label)
+                debug(f"\tExisting split: {split}" if split else f"\tNo existing split for {process_name} on host {host_label}")
 
                 # RAM check only when creating a new split
                 if not split and available["ram"] < process.application.ram_occupancy_gb:
-                    debug(f"\tNot enough RAM available on host {h} for process {process_name}")
+                    debug(f"\tNot enough RAM available on host {host_label} for process {process_name}")
                     continue
 
                 # Compute the maximum MNs that can be allocated with the available CPU
-                rec = self._best_fit_record(process_name, h, max_delay_ms, available["cpu_share"], mns_to_allocate, split)
+                rec = self._best_fit_record(process_name, host_label, max_delay_ms, available["cpu_share"], mns_to_allocate, split)
                 if rec:  # {host_label, supported_mns, cpu_share, _had_split}
                     candidates.append({k: rec[k] for k in ("host_label", "supported_mns", "cpu_share")})
-                    debug(f"\tHost {h} is a candidate: {candidates[-1]}")
+                    debug(f"\tHost {host_label} is a candidate: {candidates[-1]}")
                 else:
-                    debug(f"\tHost {h} cannot be a candidate")
+                    debug(f"\tHost {host_label} cannot be a candidate")
 
             debug("--- **Candidates evaluation** ---")
             candidates = self._filter_by_splitting_policy(candidates, mns_to_allocate)
             debug(f"Filtered candidates by splitting policy ({self.splitting_policy}): {candidates}")
-            
+
             candidates = self._prefer_infinite_parallelism(candidates)
             debug(f"Candidates after preferring infinite parallelism: {candidates}")
 
@@ -203,14 +209,16 @@ class DJNecora(JNecora):
             new_split = self._apply_allocation(process_name, selected, process)
             allocated_mns += selected["supported_mns"]
             num_splits += int(new_split)
-            debug(f"Updated available resources on host {selected['host_label']}: {self._available_resources_per_host[selected['host_label']]}")
+            debug(
+                f"Updated available resources on host {selected['host_label']}: {self._available_resources_per_host[selected['host_label']]}"
+            )
             debug(f"Allocated MNs for process {process_name}: {allocated_mns}/{process.mns} MNs\n")
 
         debug(f"--- **Process {process_name} completed** ---")
         debug(f"Process allocation table: {self._allocation_table_per_host}")
         debug(f"Available resources: {self._available_resources_per_host}")
         info(f"**Process {process_name} allocation complete**: allocated {allocated_mns}/{process.mns} MNs, {num_splits} splits created")
-        
+
         # Return True if at least one MN was allocated
         if allocated_mns == 0:
             return False
@@ -240,7 +248,7 @@ class DJNecora(JNecora):
             if not split and avail["ram"] < process.application.ram_occupancy_gb:
                 debug(f"\tHost {h} cannot accommodate new split for process {process_name}")
                 continue
-            
+
             rec = self._best_fit_record(process_name, h, max_delay_ms, avail["cpu_share"], 1, split)
             if not rec:
                 continue
@@ -263,7 +271,7 @@ class DJNecora(JNecora):
 
         candidates = self._prefer_infinite_parallelism(candidates)
         debug(f"Candidates after preferring infinite parallelism: {candidates}")
-        
+
         if not candidates:
             info(f"No candidate hosts available for adding 1 MN to process {process_name}")
             return False
@@ -275,7 +283,9 @@ class DJNecora(JNecora):
         # Apply the allocation
         new_split = self._apply_allocation(process_name, selected, process)
         debug(f"Updated available resources on host {selected['host_label']}: {self._available_resources_per_host[selected['host_label']]}")
-        info(f"--- **1 MN added** for process {process_name} on host {selected['host_label']} {'' if not new_split else f'(new split created)'} ---")
+        info(
+            f"--- **1 MN added** for process {process_name} on host {selected['host_label']} {'' if not new_split else f'(new split created)'} ---"
+        )
         debug(f"Process allocation table: {self._allocation_table_per_host}")
         debug(f"Available resources: {self._available_resources_per_host}")
         return True

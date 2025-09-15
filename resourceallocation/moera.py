@@ -203,7 +203,9 @@ class MOERA:
 
         if selected_host not in self._allocation_map:
             self._allocation_map[selected_host] = []
-        self._allocation_map[selected_host].append({"process_name": process_name, "num_mns":1, "cpu_share": cpu_share, "allocated_cpu": cpu_demand})
+        self._allocation_map[selected_host].append(
+            {"process_name": process_name, "num_mns": 1, "cpu_share": cpu_share, "allocated_cpu": cpu_demand}
+        )
         debug(f"Allocation map: {self._allocation_map}")
         debug("-----")
 

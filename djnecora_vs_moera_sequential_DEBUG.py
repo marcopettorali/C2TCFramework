@@ -6,17 +6,17 @@ import random
 from utils.logging import focus, info, set_logging_level
 
 SCENARIO = "scenario1"
-NUM_REPETITIONS = 50
+NUM_REPETITIONS = 1#50
 MAX_MNS = -1 #13  # set to -1 to allocate all MNs of each process
 LOAD_MNS_LIST_FROM_FILE = "results_scenario1_het1_13_0_TEST.json"
 
 # set coarse grain
 context = DJNecora.load_context_from_file(f"configs/{SCENARIO}.json", _cpu_shares={"cpu_ghz_precision": 0.1})
 
-splitting_policies = ["no_splitting", "lazy_splitting", "greedy_splitting"]
-selection_policies = ["first_fit", "next_fit", "best_fit", "worst_fit", "random_fit"]
+splitting_policies = ["lazy_splitting"]
+selection_policies = ["first_fit"]
 
-results_file = f"out/djnecora_vs_moera_{SCENARIO}.json"
+results_file = f"out/djnecora_vs_moera_{SCENARIO}_DEBUG.json"
 
 
 def run_experiments():
@@ -41,7 +41,7 @@ def run_experiments():
                     djnecora_dict[sp][cp].context.processes[process_name].mns = 1  # reset number of MNs to 1
                 djnecora_dict[sp][cp].initialize_hosts()
 
-        set_logging_level("focus")
+        set_logging_level("debug")
 
         # Build MNs allocation list if not loading from file
         if LOAD_MNS_LIST_FROM_FILE is None:
@@ -61,6 +61,7 @@ def run_experiments():
                 loaded_track = json.load(f)
 
             mns_list = [x[0] for x in loaded_track[str(rep)]["mns_arrival_list"]]
+            mns_list = mns_list[:6]
             print(rep, mns_list)
          
 
@@ -76,7 +77,7 @@ def run_experiments():
             info(f"\tAllocating MN {mn_index} of process {process_name}")
 
             # MOERA
-            moera.add_1_mn(process_name)
+            # moera.add_1_mn(process_name)
 
             # DJNecora
             for sp in splitting_policies:
@@ -104,11 +105,11 @@ def run_experiments():
             for cp in selection_policies:
                 results[f"DJ-NECORA.{sp}.{cp}"].append(djnecora_dict[sp][cp]._allocation_table_per_host)
 
-        # dump data to json
-        import json
+        # # dump data to json
+        # import json
 
-        with open(results_file, "w") as f:
-            json.dump(results, f, indent=4, default=lambda o: asdict(o))
+        # with open(results_file, "w") as f:
+        #     json.dump(results, f, indent=4, default=lambda o: asdict(o))
 
 
 def plot_results():
