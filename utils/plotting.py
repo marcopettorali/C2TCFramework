@@ -160,3 +160,64 @@ def draw_paths(graph, ax, src, dest):
             edge_color="red",
             width=2,
         )
+
+
+# GROUPED BAR PLOT
+def grouped_bar_plot(
+    fig: plt.Figure, ax: plt.Axes, data_matrix: dict, column_labels: list, group_by_rows=True, colors=None, hatches=None, capsize=4, **kwargs_bar
+):
+    """
+    This function creates a grouped bar plot from a 2D data matrix dict.
+    Each value should be a tuple (avg, err), and error bars are plotted.
+    e.g. data_matrix = {'A': [(1,0.1), (2,0.2), (3,0.3)], 'B': [(4,0.2), (5,0.3), (6,0.4)]}
+    If group_by_rows is True, it groups the data by rows; otherwise, it groups by columns.
+    """
+    import numpy as np
+
+    # extract data
+    if group_by_rows:
+        series_labels = column_labels
+        group_labels = list(data_matrix.keys())
+        data = np.array(list(data_matrix.values()))
+    else:
+        series_labels = list(data_matrix.keys())
+        group_labels = column_labels
+        data = np.array([list(v) for v in zip(*data_matrix.values())])
+
+    # data shape: (num_groups, num_bars, 2)
+    num_groups, num_bars = data.shape[:2]
+    bar_width = 0.8 / num_bars
+    x = np.arange(num_groups)
+
+    # define colors and hatches
+    if colors is None:
+        colors = plt.cm.get_cmap("tab10").colors
+    if hatches is None:
+        hatches = ["" for _ in range(num_bars)]
+
+    for i in range(num_bars):
+        avg = data[:, i, 0]
+        err = data[:, i, 1]
+        ax.bar(
+            x + i * bar_width,
+            avg,
+            width=bar_width,
+            label=series_labels[i],
+            color=colors[i % len(colors)],
+            yerr=err,
+            capsize=capsize,
+            hatch=hatches[i % len(hatches)],
+            **kwargs_bar,
+        )
+
+    ax.set_xticks(x + (num_bars - 1) * bar_width / 2)
+    ax.set_xticklabels(group_labels)
+
+    return fig, ax
+
+
+if __name__ == "__main__":
+    fig, ax = plt.subplots()
+    data_matrix = {"A": [(1, 0.1), (2, 0.2)], "B": [(4, 0.2), (5, 0.3)], "C": [(2, 0.1), (3, 0.2)]}
+    grouped_bar_plot(fig, ax, data_matrix, column_labels=["G1", "G2"], group_by_rows=True, hatches=["/", "x", "\\"], colors=["red", "blue", "green"])
+    plt.show()

@@ -5,13 +5,15 @@ import copy
 import random
 from utils.logging import focus, info, set_logging_level
 
-SCENARIO = "scenario1"
+SCENARIO = "scenario1_het1"
 NUM_REPETITIONS = 50
-MAX_MNS = -1 #13  # set to -1 to allocate all MNs of each process
-LOAD_MNS_LIST_FROM_FILE = "results_scenario1_het1_13_0_TEST.json"
+MAX_MNS = 13  # -1  # set to -1 to allocate all MNs of each process
+LOAD_MNS_LIST_FROM_FILE = None  # "results_scenario1_het1_13_0_TEST.json"
 
 # set coarse grain
-context = DJNecora.load_context_from_file(f"configs/{SCENARIO}.json", _cpu_shares={"cpu_ghz_precision": 0.1})
+context = DJNecora.load_context_from_file(
+    f"configs/{SCENARIO}.json", _cpu_shares={"cpu_share_precision": 0.01, "cpu_share_round_precision": 2}
+)
 
 splitting_policies = ["no_splitting", "lazy_splitting", "greedy_splitting"]
 selection_policies = ["first_fit", "next_fit", "best_fit", "worst_fit", "random_fit"]
@@ -61,8 +63,6 @@ def run_experiments():
                 loaded_track = json.load(f)
 
             mns_list = [x[0] for x in loaded_track[str(rep)]["mns_arrival_list"]]
-            print(rep, mns_list)
-         
 
         # transform each entry of the shuffled list in (process, i), where i is the index of the MN relative to process from 0 to N
         # e.g. [P0, P1, P0, P2, P1] -> [(P0,0), (P1,0), (P0,1), (P2,0), (P1,1)]
@@ -127,13 +127,9 @@ def plot_results():
             allocation = results[alg][rep_index]
             total_mns = 0
             for br in allocation:
-                if br == "CN":
-                    continue
                 for split in range(len(allocation[br])):
                     total_mns += allocation[br][split]["num_mns"]
             data[alg].append(total_mns)
-
-    info(data)
 
     # compute mean confidence intervals for each algorithm
     from utils.stats import mean_confidence_interval, avg, ci_err

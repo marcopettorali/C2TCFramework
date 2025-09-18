@@ -210,17 +210,29 @@ def _worker(process: Process, host: Host, nmns, context: Context):
     if isinstance(_CPU_SHARES, list):
         cpu_shares = _CPU_SHARES
     elif isinstance(_CPU_SHARES, dict):
+        round_precision = None
+        if "cpu_share_round_precision" in _CPU_SHARES:
+            round_precision = _CPU_SHARES["cpu_share_round_precision"]
+
         if "cpu_ghz_precision" in _CPU_SHARES:
             step_ghz = _CPU_SHARES["cpu_ghz_precision"]
             # convert it to a share for this host
             step_share = step_ghz / host.cpu_ghz
-            cpu_shares = list(np.arange(step_share, 1.0 + step_share, step_share))
-            cpu_shares.reverse()
+            cpu_shares = list(np.arange(0, 1.0 + step_share, step_share))[1:]  # exclude 0
+        elif "cpu_share_precision" in _CPU_SHARES:
+            step_share = _CPU_SHARES["cpu_share_precision"]
+            cpu_shares = list(np.arange(0, 1.0 + step_share, step_share))[1:]  # exclude 0
         else:
             raise ValueError(f"Invalid _CPU_SHARES dict: {_CPU_SHARES}")
+        cpu_shares = [float(x) for x in cpu_shares if x <= 1.0]
+
+        if round_precision is not None:
+            cpu_shares = [round(x, round_precision) for x in cpu_shares]
+
+        cpu_shares = sorted(cpu_shares, reverse=True)
     else:
         raise ValueError(f"Invalid _CPU_SHARES type: {type(_CPU_SHARES)}")
-
+    
     for share in cpu_shares:
         if to_break:
             # ASSUMPTION: we don't care when the host can no longer tolerate the app.

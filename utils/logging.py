@@ -126,7 +126,7 @@ def _base_print(prefix, base_style, *args, **kwargs):
 
     # Prefisso con timestamp
     timestamp = datetime.now().strftime("%H:%M:%S.%f")
-    prefix_text = Text(f"[{prefix} {timestamp}]")
+    prefix_text = Text(f"[{timestamp} {prefix}]")
     console.print(prefix_text, end=" ", **{k: v for k, v in kw.items() if k not in ("end", "markup")})
 
     # Stampa gli argomenti in sequenza, separati da spazio

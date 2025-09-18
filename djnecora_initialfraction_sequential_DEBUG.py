@@ -1,0 +1,240 @@
+from dataclasses import asdict
+from resourceallocation.djnecora import DJNecora
+import copy
+import random
+from utils.logging import focus, info, set_logging_level
+
+set_logging_level("debug")
+
+SCENARIO = "scenario1_het1"
+NUM_REPETITIONS = 2# 50
+MAX_MNS = 13  # -1  # set to -1 to allocate all MNs of each process
+LOAD_MNS_LIST_FROM_FILE = None #"out/djnecora_initialfraction_scenario1_het1.json"  # "results_scenario1_het1_13_0_TEST.json"
+
+initial_fractions = [0]  # , 0.5, 1]
+splitting_policies = ["no_splitting", "lazy_splitting"]  # , "greedy_splitting"]
+selection_policies = ["worst_fit"]  # ["first_fit", "next_fit", "best_fit", "worst_fit", "random_fit"]
+
+results_file = f"out/djnecora_initialfraction_{SCENARIO}_DEBUG.json"
+
+preallocation_map = {
+    "scenario1_hom": {
+        "P0": {"host": "BR0", "cpu_share": None, "num_mns": 1},
+        "P1": {"host": "BR1", "cpu_share": None, "num_mns": 4},
+        "P2": {"host": "BR2", "cpu_share": None, "num_mns": 6},
+        "P3": {"host": "BR5", "cpu_share": None, "num_mns": 12},
+        "P4": {"host": "BR4", "cpu_share": None, "num_mns": 13},
+        "P5": {"host": "BR3", "cpu_share": None, "num_mns": 13},
+        "P6": {"host": "CN", "cpu_share": None, "num_mns": 13},
+        "P7": {"host": "CN", "cpu_share": None, "num_mns": 13},
+    },
+    "scenario1_het1": {
+        "P0": {"host": "BR3", "cpu_share": None, "num_mns": 1},
+        "P1": {"host": "BR0", "cpu_share": None, "num_mns": 1},
+        "P2": {"host": "BR2", "cpu_share": None, "num_mns": 6},
+        "P3": {"host": "BR1", "cpu_share": None, "num_mns": 4},
+        "P4": {"host": "BR0", "cpu_share": None, "num_mns": 5},
+        "P5": {"host": "BR1", "cpu_share": None, "num_mns": 8},
+        "P6": {"host": "CN", "cpu_share": None, "num_mns": 13},
+        "P7": {"host": "CN", "cpu_share": None, "num_mns": 13},
+    },
+    "scenario1_het3": {
+        "P0": {"host": "BR0", "cpu_share": None, "num_mns": 1},
+        "P1": {"host": "BR1", "cpu_share": None, "num_mns": 1},
+        "P2": {"host": "BR2", "cpu_share": None, "num_mns": 6},
+        "P3": {"host": "BR5", "cpu_share": None, "num_mns": 13},
+        "P4": {"host": "BR4", "cpu_share": None, "num_mns": 13},
+        "P5": {"host": "BR3", "cpu_share": None, "num_mns": 13},
+        "P6": {"host": "CN", "cpu_share": None, "num_mns": 13},
+        "P7": {"host": "CN", "cpu_share": None, "num_mns": 13},
+    },
+}[SCENARIO]
+
+jnecora_result = {
+    "scenario1_hom": None,
+    "scenario1_het1": 51,
+    "scenario1_het3": None,
+}[SCENARIO]
+
+
+def min_cpu_share_for_preallocation(context, process_name, host_label, num_mns):
+    return min(
+        (
+            (p, h, c, m)
+            for (p, h, c, m), g in context.links["gamma_tot_precomputed"].items()
+            if p == process_name and h == host_label and g <= context.processes[process_name].max_delay_ms and m == num_mns
+        ),
+        key=lambda x: x[2],  # max supported MNs, min CPU share
+        default=None,
+    )
+
+
+def run_experiments():
+
+    # Run experiments
+
+    results = {}
+    for initial_frac in initial_fractions:
+        focus(f"=== INITIAL FRACTION {initial_frac} ===")
+
+        # set grain compatible with the results in DJ-NECORA conference paper
+        context = DJNecora.load_context_from_file(
+            f"configs/{SCENARIO}.json", _cpu_shares={"cpu_share_precision": 0.01, "cpu_share_round_precision": 2}
+        )
+
+        # compute the number of MNs that will be allocated with this initial fraction
+        preallocation_fraction_data = {
+            process_name: (
+                num_mns := round(initial_frac * preallocation_map[process_name]["num_mns"]),
+                host := preallocation_map[process_name]["host"],
+                min_cpu_share_for_preallocation(context, process_name, host, num_mns)[2] if num_mns > 0 else None,
+            )
+            for process_name in context.processes.keys()
+        }
+
+        focus(preallocation_fraction_data)
+
+        results[initial_frac] = {f"DJ-NECORA.{sp}.{cp}": [] for sp in splitting_policies for cp in selection_policies}
+        results[initial_frac].update({"mns_arrival_list": []})
+        for rep in range(NUM_REPETITIONS):
+            focus(f"--- REPETITION {rep + 1}/{NUM_REPETITIONS} ---")
+
+            # Initialize algorithms and preallocate processes
+            djnecora_dict = {sp: {cp: DJNecora(sp, cp) for cp in selection_policies} for sp in splitting_policies}
+            for sp in splitting_policies:
+                for cp in selection_policies:
+                    djnecora_dict[sp][cp].set_context(copy.deepcopy(context))
+                    # for process_name, process in context.processes.items():
+                    #     djnecora_dict[sp][cp].context.processes[process_name].mns =
+                    djnecora_dict[sp][cp].initialize_hosts()
+
+            # Build MNs allocation list if not loading from file
+            if LOAD_MNS_LIST_FROM_FILE is None:
+
+                # get process list
+                process_list = list(context.processes.keys())
+                # get MNs list
+                mns_list = [p for p in process_list for _ in range(MAX_MNS - preallocation_fraction_data[p][0])]
+
+                # shuffle process list
+                # random.shuffle(mns_list)
+                # sort process list reverse
+                mns_list.sort(reverse=True)
+            else:
+                import json
+
+                with open(LOAD_MNS_LIST_FROM_FILE, "r") as f:
+                    loaded_track = json.load(f)
+
+                mns_list = [x[0] for x in loaded_track[str(initial_frac)]["mns_arrival_list"][rep]]
+
+                focus(mns_list)
+
+            # transform each entry of the shuffled list in (process, i), where i is the index of the MN relative to process from 0 to N
+            # e.g. [P0, P1, P0, P2, P1] -> [(P0,0), (P1,0), (P0,1), (P2,0), (P1,1)]
+            mns_list = [(p, sum(1 for x in mns_list[:i] if x == p)) for i, p in enumerate(mns_list)]
+
+            results[initial_frac]["mns_arrival_list"].append(mns_list)
+
+            # Keep track of allocation status for DJNecora (stop allocating MNs of a process if one MN could not be allocated)
+            allocation_status = {sp: {cp: {} for cp in selection_policies} for sp in splitting_policies}
+
+            # Extract one element at a time and allocate it using all the algorithms
+            for process_name, mn_index in mns_list:
+                info(f"\tAllocating MN {mn_index} of process {process_name}")
+
+                # DJNecora
+                for sp in splitting_policies:
+                    for cp in selection_policies:
+                        # if first mn of the process, call add_process, else call add_1_mn
+                        if mn_index == 0:
+                            ret = djnecora_dict[sp][cp].add_process(process_name)
+                            allocation_status[sp][cp][process_name] = ret
+                            info(f"\t\tDJNecora ({sp}, {cp}): adding process {process_name}: **{'succeeded' if ret else 'failed'}**")
+                        else:
+                            if allocation_status[sp][cp][process_name]:
+                                ret = djnecora_dict[sp][cp].add_1_mn_to_process(process_name)
+                                allocation_status[sp][cp][process_name] = ret
+                                info(
+                                    f"\t\tDJNecora ({sp}, {cp}): adding 1 MN to process {process_name}: **{'succeeded' if ret else 'failed'}**"
+                                )
+                            else:
+                                info(
+                                    f"\t\tDJNecora ({sp}, {cp}): skipping allocation of MN {mn_index} of process {process_name} since previous MNs could not be allocated"
+                                )
+
+            # store results
+            for sp in splitting_policies:
+                for cp in selection_policies:
+                    results[initial_frac][f"DJ-NECORA.{sp}.{cp}"].append(djnecora_dict[sp][cp]._allocation_table_per_host)
+
+            # dump data to json
+            import json
+
+            with open(results_file, "w") as f:
+                json.dump(results, f, indent=4, default=lambda o: asdict(o))
+
+
+def plot_results():
+    # load results from json
+    import json
+    from utils.stats import mean_confidence_interval, avg, ci_err
+
+    with open(results_file, "r") as f:
+        results = json.load(f)
+
+    # 1 plot per splitting policy
+    for sp in splitting_policies:
+
+        data = {cp: [] for cp in selection_policies}
+        for cp in selection_policies:
+            for i in initial_fractions:
+                key = f"DJ-NECORA.{sp}.{cp}"
+                tot_mns = [sum(x["num_mns"] for br, br_data in rep_data.items() for x in br_data) for rep_data in results[str(i)][key]]
+                data[cp].append((avg(ulb := mean_confidence_interval(tot_mns)), ci_err(ulb)))
+        print(data)
+
+        data = {"-".join([x.capitalize() for x in k.split("_")]): v for k, v in data.items()}
+        data = {k.replace("Random-Fit", "Random"): v for k, v in data.items()}
+
+        from utils.plotting import latex_initialize, bold, grouped_bar_plot
+        import matplotlib.pyplot as plt
+
+        latex_initialize()
+
+        color = [{"no_splitting": "#80b1d3", "lazy_splitting": "#b3de69", "greedy_splitting": "#fb8072"}[sp] for _ in selection_policies]
+        hatches = ["", "o", "x"]
+
+        fig, ax = plt.subplots()
+        grouped_bar_plot(
+            fig,
+            ax,
+            data,
+            column_labels=[bold(f"I={int(i*100)}\\%") for i in initial_fractions],
+            group_by_rows=True,
+            colors=color,
+            hatches=hatches,
+            edgecolor="black",
+        )
+
+        ax.axhline(y=jnecora_result, color="red", linestyle="--")
+
+        ax.set_xlabel(bold("Host selection policy"))
+        ax.set_ylabel(bold("Total MNs allocated"))
+        ax.set_ylim(0, 80)
+        ax.grid(axis="y")
+        ax.set_axisbelow(True)
+        ax.legend(ncols=3)
+        fig.tight_layout()
+        fig.savefig(f"out/plots/djnecora_initialfraction_{SCENARIO}_{sp}.pdf")
+
+
+# import os
+
+# # Check if results file does not exist
+# if not os.path.exists(results_file):
+#     run_experiments()
+# set_logging_level("info")
+run_experiments()
+plot_results()
+
