@@ -2,10 +2,11 @@ from dataclasses import asdict
 from resourceallocation.djnecora import DJNecora
 import copy
 import random
+from resourceallocation.jnecora import JNecora
 from utils.logging import focus, info, set_logging_level
 
 SCENARIO = "scenario1_het1"
-NUM_REPETITIONS = 50
+NUM_REPETITIONS = 100
 MAX_MNS = 13  # -1  # set to -1 to allocate all MNs of each process
 LOAD_MNS_LIST_FROM_FILE = None  # "results_scenario1_het1_13_0_TEST.json"
 
@@ -15,44 +16,7 @@ selection_policies = ["first_fit", "next_fit", "best_fit", "worst_fit", "random_
 
 results_file = f"out/djnecora_initialfraction_{SCENARIO}.json"
 
-preallocation_map = {
-    "scenario1_hom": {
-        "P0": {"host": "BR0", "cpu_share": None, "num_mns": 1},
-        "P1": {"host": "BR1", "cpu_share": None, "num_mns": 4},
-        "P2": {"host": "BR2", "cpu_share": None, "num_mns": 6},
-        "P3": {"host": "BR5", "cpu_share": None, "num_mns": 12},
-        "P4": {"host": "BR4", "cpu_share": None, "num_mns": 13},
-        "P5": {"host": "BR3", "cpu_share": None, "num_mns": 13},
-        "P6": {"host": "CN", "cpu_share": None, "num_mns": 13},
-        "P7": {"host": "CN", "cpu_share": None, "num_mns": 13},
-    },
-    "scenario1_het1": {
-        "P0": {"host": "BR3", "cpu_share": None, "num_mns": 1},
-        "P1": {"host": "BR0", "cpu_share": None, "num_mns": 1},
-        "P2": {"host": "BR2", "cpu_share": None, "num_mns": 6},
-        "P3": {"host": "BR1", "cpu_share": None, "num_mns": 4},
-        "P4": {"host": "BR0", "cpu_share": None, "num_mns": 5},
-        "P5": {"host": "BR1", "cpu_share": None, "num_mns": 8},
-        "P6": {"host": "CN", "cpu_share": None, "num_mns": 13},
-        "P7": {"host": "CN", "cpu_share": None, "num_mns": 13},
-    },
-    "scenario1_het3": {
-        "P0": {"host": "BR0", "cpu_share": None, "num_mns": 1},
-        "P1": {"host": "BR1", "cpu_share": None, "num_mns": 1},
-        "P2": {"host": "BR2", "cpu_share": None, "num_mns": 6},
-        "P3": {"host": "BR5", "cpu_share": None, "num_mns": 13},
-        "P4": {"host": "BR4", "cpu_share": None, "num_mns": 13},
-        "P5": {"host": "BR3", "cpu_share": None, "num_mns": 13},
-        "P6": {"host": "CN", "cpu_share": None, "num_mns": 13},
-        "P7": {"host": "CN", "cpu_share": None, "num_mns": 13},
-    },
-}[SCENARIO]
-
-jnecora_result = {
-    "scenario1_hom": None,
-    "scenario1_het1": 51,
-    "scenario1_het3": None,
-}[SCENARIO]
+JNECORA_RESULT = 67
 
 
 def min_cpu_share_for_preallocation(context, process_name, host_label, num_mns):
@@ -69,8 +33,29 @@ def min_cpu_share_for_preallocation(context, process_name, host_label, num_mns):
 
 def run_experiments():
 
-    # Run experiments
+    # Run J-NECORA to get preallocation map
+    jnecora_context = JNecora.load_context_from_file(f"configs/{SCENARIO}.json")
+    jnecora = JNecora()
+    jnecora.set_context(jnecora_context)
 
+    allocation, total_mns = jnecora.allocate_all_processes_optimal()
+    ret = jnecora.compute_max_mns_min_cpushare_for_allocation(allocation)
+
+    preallocation_map = {}
+    for allocation_elem in ret:
+        process_name, host_label, cpu_share, num_mns = allocation_elem
+        preallocation_map[process_name] = {
+            "host": host_label,
+            "cpu_share": cpu_share,
+            "num_mns": num_mns,
+        }
+    global JNECORA_RESULT
+    JNECORA_RESULT = total_mns
+
+    focus("=== J-NECORA RESULT ===")
+    focus(preallocation_map)
+
+    # Run DJ-NECORA experiments
     results = {}
     for initial_frac in initial_fractions:
         focus(f"=== INITIAL FRACTION {initial_frac} ===")
@@ -183,6 +168,9 @@ def run_experiments():
 
 
 def plot_results():
+    context = DJNecora.load_context_from_file(f"configs/{SCENARIO}.json")
+    applications = list(context.processes.keys())
+
     # load results from json
     import json
     from utils.stats import mean_confidence_interval, avg, ci_err
@@ -197,9 +185,10 @@ def plot_results():
         for cp in selection_policies:
             for i in initial_fractions:
                 key = f"DJ-NECORA.{sp}.{cp}"
-                tot_mns = [sum(x["num_mns"] for br, br_data in rep_data.items() for x in br_data) for rep_data in results[str(i)][key]]
-                data[cp].append((avg(ulb := mean_confidence_interval(tot_mns)), ci_err(ulb)))
-        print(data)
+                tot_mns_for_app = [
+                    sum(x["num_mns"] for br, br_data in rep_data.items() for x in br_data) for rep_data in results[str(i)][key]
+                ]
+                data[cp].append((avg(ulb := mean_confidence_interval(tot_mns_for_app)), ci_err(ulb)))
 
         data = {"-".join([x.capitalize() for x in k.split("_")]): v for k, v in data.items()}
         data = {k.replace("Random-Fit", "Random"): v for k, v in data.items()}
@@ -224,16 +213,66 @@ def plot_results():
             edgecolor="black",
         )
 
-        ax.axhline(y=jnecora_result, color="red", linestyle="--")
+        ax.axhline(y=JNECORA_RESULT, color="red", linestyle="--")
 
         ax.set_xlabel(bold("Host selection policy"))
         ax.set_ylabel(bold("Total MNs allocated"))
-        ax.set_ylim(0, 80)
+        ax.set_ylim(0, 90)
         ax.grid(axis="y")
         ax.set_axisbelow(True)
         ax.legend(ncols=3)
         fig.tight_layout()
         fig.savefig(f"out/plots/djnecora_initialfraction_{SCENARIO}_{sp}.pdf")
+
+    # DATA BY APPLICATION
+    # 1 plot per splitting policy AND application
+    import itertools
+
+    for sp, p in itertools.product(splitting_policies, applications):
+
+        data = {cp: [] for cp in selection_policies}
+        for cp in selection_policies:
+            for i in initial_fractions:
+                key = f"DJ-NECORA.{sp}.{cp}"
+                tot_mns_for_app = [
+                    sum(x["num_mns"] for br, br_data in rep_data.items() for x in br_data if x["process_name"] == p)
+                    for rep_data in results[str(i)][key]
+                ]
+                data[cp].append((avg(ulb := mean_confidence_interval(tot_mns_for_app)), ci_err(ulb)))
+
+        data = {"-".join([x.capitalize() for x in k.split("_")]): v for k, v in data.items()}
+        data = {k.replace("Random-Fit", "Random"): v for k, v in data.items()}
+
+        from utils.plotting import latex_initialize, bold, grouped_bar_plot
+        import matplotlib.pyplot as plt
+
+        latex_initialize()
+
+        color = [{"no_splitting": "#80b1d3", "lazy_splitting": "#b3de69", "greedy_splitting": "#fb8072"}[sp] for _ in selection_policies]
+        hatches = ["", "o", "x"]
+
+        fig, ax = plt.subplots()
+        grouped_bar_plot(
+            fig,
+            ax,
+            data,
+            column_labels=[bold(f"I={int(i*100)}\\%") for i in initial_fractions],
+            group_by_rows=True,
+            colors=color,
+            hatches=hatches,
+            edgecolor="black",
+        )
+
+        # ax.axhline(y=jnecora_result, color="red", linestyle="--")
+
+        ax.set_xlabel(bold("Host selection policy"))
+        ax.set_ylabel(bold("Total MNs allocated"))
+        ax.set_ylim(0, 16)
+        ax.grid(axis="y")
+        ax.set_axisbelow(True)
+        ax.legend(ncols=3)
+        fig.tight_layout()
+        fig.savefig(f"out/plots/djnecora_initialfraction_{SCENARIO}_{sp}_{p}.pdf")
 
 
 import os

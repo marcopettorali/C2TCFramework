@@ -7,9 +7,9 @@ from utils.logging import focus, info, set_logging_level
 set_logging_level("debug")
 
 SCENARIO = "scenario1_het1"
-NUM_REPETITIONS = 2# 50
+NUM_REPETITIONS = 50# 50
 MAX_MNS = 13  # -1  # set to -1 to allocate all MNs of each process
-LOAD_MNS_LIST_FROM_FILE = None #"out/djnecora_initialfraction_scenario1_het1.json"  # "results_scenario1_het1_13_0_TEST.json"
+LOAD_MNS_LIST_FROM_FILE = "out/djnecora_initialfraction_scenario1_het1.json"  # "results_scenario1_het1_13_0_TEST.json"
 
 initial_fractions = [0]  # , 0.5, 1]
 splitting_policies = ["no_splitting", "lazy_splitting"]  # , "greedy_splitting"]
@@ -98,6 +98,9 @@ def run_experiments():
         results[initial_frac].update({"mns_arrival_list": []})
         for rep in range(NUM_REPETITIONS):
             focus(f"--- REPETITION {rep + 1}/{NUM_REPETITIONS} ---")
+
+            if rep != 42:
+                continue
 
             # Initialize algorithms and preallocate processes
             djnecora_dict = {sp: {cp: DJNecora(sp, cp) for cp in selection_policies} for sp in splitting_policies}
@@ -191,6 +194,7 @@ def plot_results():
             for i in initial_fractions:
                 key = f"DJ-NECORA.{sp}.{cp}"
                 tot_mns = [sum(x["num_mns"] for br, br_data in rep_data.items() for x in br_data) for rep_data in results[str(i)][key]]
+                print(i, sp, cp, tot_mns)
                 data[cp].append((avg(ulb := mean_confidence_interval(tot_mns)), ci_err(ulb)))
         print(data)
 

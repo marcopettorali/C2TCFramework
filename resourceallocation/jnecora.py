@@ -449,7 +449,7 @@ class JNecora:
             max_delay_ms = self.context.processes[process_name].max_delay_ms
             valid_nms = 0
             for nmns in range(1, MAX_MNS_PER_PROCESS + 1):
-                gamma_tot = context.links["gamma_tot_precomputed"][(process_name, host_label, cpu_share, nmns)]
+                gamma_tot = self.context.links["gamma_tot_precomputed"][(process_name, host_label, cpu_share, nmns)]
                 if gamma_tot <= max_delay_ms:
                     valid_nms = nmns
                 else:
@@ -628,7 +628,34 @@ class JNecora:
             raise ValueError(f"Method {method} is not supported. Supported methods are 'exhaustive' and 'ga'")
 
         return best_solution, best_value
+    
 
+    def compute_max_mns_min_cpushare_for_allocation(self,allocation):
+        new_solution = []
+        for all in allocation:
+            process_name, host_label = all
+            max_delay_ms = self.context.processes[process_name].max_delay_ms
+
+            if self.context.hosts[host_label].infinite_parallelism:
+                cpu_share = 1
+            else:
+                cpu_share = 1 / (sum([1 for elem in allocation if elem[1] == host_label]))
+
+            valid_nms = 0
+            for nmns in range(1, MAX_MNS_PER_PROCESS + 1):
+                gamma_tot = self.context.links["gamma_tot_precomputed"][(process_name, host_label, cpu_share, nmns)]
+                if gamma_tot <= max_delay_ms:
+                    valid_nms = nmns
+                else:
+                    break
+
+            if valid_nms == 0:
+                host_label = "None"
+                cpu_share = 0
+
+            new_solution.append((process_name, host_label, cpu_share, valid_nms))
+
+        return new_solution
 
 if __name__ == "__main__":
     import itertools
@@ -704,49 +731,25 @@ if __name__ == "__main__":
     debug(f"Best value: {value}")
 
     # put the allocated CPU share and the max number of MNs in the solution
-    new_solution = []
-    for all in solution:
-        process_name, host_label = all
-        max_delay_ms = context.processes[process_name].max_delay_ms
-
-        if context.hosts[host_label].infinite_parallelism:
-            cpu_share = 1
-        else:
-            cpu_share = 1 / (sum([1 for elem in solution if elem[1] == host_label]))
-
-        valid_nms = 0
-        for nmns in range(1, MAX_MNS_PER_PROCESS + 1):
-            gamma_tot = context.links["gamma_tot_precomputed"][(process_name, host_label, cpu_share, nmns)]
-            if gamma_tot <= max_delay_ms:
-                valid_nms = nmns
-            else:
-                break
-
-        if valid_nms == 0:
-            host_label = "None"
-            cpu_share = 0
-
-        new_solution.append((process_name, host_label, cpu_share, valid_nms))
-
-    results = [new_solution, value]
+    new_solution = jnecora.compute_max_mns_min_cpushare_for_allocation(solution)
     debug(new_solution)
 
-    # save the results in a json file
-    import json
+    # # save the results in a json file
+    # import json
 
-    filename = "out/" + args.result_path
+    # filename = "out/" + args.result_path
 
-    import os
+    # import os
 
-    # if the path does not exist, create it
-    if not os.path.exists(filename):
-        with open(filename, "w") as f:
-            json.dump({scenario_name: results}, f, indent=4)
-    else:
+    # # if the path does not exist, create it
+    # if not os.path.exists(filename):
+    #     with open(filename, "w") as f:
+    #         json.dump({scenario_name: results}, f, indent=4)
+    # else:
 
-        with open(filename, "r") as f:
-            data = json.load(f)
-            data[scenario_name] = results
+    #     with open(filename, "r") as f:
+    #         data = json.load(f)
+    #         data[scenario_name] = results
 
-        with open(filename, "w") as f:
-            json.dump(data, f, indent=4)
+    #     with open(filename, "w") as f:
+    #         json.dump(data, f, indent=4)

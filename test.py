@@ -1,42 +1,20 @@
-from resourceallocation.jnecora import JNecora
-from resourceallocation.oracle import solve_mn_allocation
-from utils.logging import info
-import itertools
-from collections import defaultdict
+ar1=[60, 60, 55, 58, 58, 56, 62, 62, 54, 53, 57, 59, 56, 56, 61, 56, 61, 54, 56, 61, 54, 60, 58, 61, 56, 54, 64, 54, 61, 61, 59, 53, 64, 69, 53, 56, 59, 54, 55, 69, 56, 58, 65, 61, 63, 62, 56, 60, 52, 57]
+ar2=[62, 49, 48, 60, 43, 56, 64, 62, 58, 55, 51, 59, 48, 58, 43, 49, 46, 63, 46, 47, 56, 62, 51, 55, 47, 56, 60, 49, 46, 44, 61, 51, 48, 50, 55, 48, 61, 50, 57, 67, 52, 51, 44, 53, 65, 49, 50, 46, 47, 59]
 
-context = JNecora.load_context_from_file("configs/scenario1.json")  # , _cpu_shares={"cpu_ghz_precision": 0.01})
+ar_diff = [a - b for a, b in zip(ar1, ar2)]
+print(ar_diff)
 
-MAX_MNS = 13
+max_elem = max(ar_diff)
+max_index = ar_diff.index(max_elem)
+print(f"Max difference: {max_elem} at index {max_index}")
 
-min_cpu_dict = {}
+import json
 
-for p, h in itertools.product(context.processes, context.hosts):
-    # Add dummy entry for m=0 (no MNs)
-    min_cpu_dict[(p, h, 0)] = 0.0
+with open("out/djnecora_initialfraction_scenario1_het1.json", "r") as f:
+    data = json.load(f)
 
-    max_delay_ms = context.processes[p].max_delay_ms
+from utils.logging import print
 
-    # For each p,h,m get min cpu
-    _temp = defaultdict(list)
-    for k, val in context.links["gamma_tot_precomputed"].items():
-        if k[0] == p and k[1] == h and val <= max_delay_ms and k[3] <= MAX_MNS:
-            _temp[k[3]].append(k[2])
-
-    for k, vals in _temp.items():
-        if vals:
-            min_cpu_dict[(p, h, k)] = min(vals)
-
-# prepare host capacities
-host_capacities_perc = {host_label: float("inf") if host.infinite_parallelism else 1.0 for host_label, host in context.hosts.items()}
-ret = solve_mn_allocation(
-    min_cpu_dict=min_cpu_dict, host_capacities_perc=host_capacities_perc, allocation_mode="max_apps_max_mns", splitting_mode="disabled"
-)
-
-info(ret)
-
-split_by_host_map = {host: [] for host in context.hosts}
-for (p, h), m in ret["selected_m_by_pair"].items():
-    if m > 0:
-        split_by_host_map[h].append((p, m, float(min_cpu_dict[(p, h, m)])))
-
-info(split_by_host_map)
+print(data["0"]["mns_arrival_list"][max_index])
+print(data["0"]["DJ-NECORA.no_splitting.worst_fit"][max_index])
+print(data["0"]["DJ-NECORA.lazy_splitting.worst_fit"][max_index])
