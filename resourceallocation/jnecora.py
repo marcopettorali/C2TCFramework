@@ -43,7 +43,6 @@ if "OMP_NUM_THREADS" not in os.environ or os.environ["OMP_NUM_THREADS"] != "1":
 
 # GLOBAL VARIABLES (WATCH OUT!)
 PACKET_LOSS_MS = 10000
-MAX_PROCESSES_PER_HOST = 8
 MAX_MNS_PER_PROCESS = 13
 
 
@@ -326,7 +325,7 @@ class JNecora:
         config_path: str,
         pickle_context: bool = True,
         pickle_folder_relative_path: str = "pickles/jnecora",
-        _cpu_shares=[1 / i for i in range(1, MAX_PROCESSES_PER_HOST + 1)],
+        _cpu_shares=None,
     ):
         """
         Loads the simulation context from a configuration file.
@@ -378,6 +377,8 @@ class JNecora:
 
         # compute the gamma_proc for each process, host and cpu_share
         info("Precomputing **gamma_tot** for each process, host and cpu_share")
+        if _cpu_shares is None:
+            _cpu_shares = [1 / i for i in range(1, len(context.processes.keys()) + 1)]
         context = _compute_gamma_tot_for_each_process_host_cpu_share(context, _cpu_shares)
 
         # if pickle_context is True, pickle the context
@@ -606,7 +607,7 @@ class JNecora:
             best_solution = all_combinations[results.index(best_value)]
 
         elif method == "ga":
-            info(f"Using GA with {len(process_names)} processes and {len(host_labels)} hosts", style="debug")
+            info(f"Using GA with {len(process_names)} processes and {len(host_labels)} hosts")
 
             objective_function = self._max_deltadelay_objective if objective == "max_deltadelay" else self._max_mns_objective
 
