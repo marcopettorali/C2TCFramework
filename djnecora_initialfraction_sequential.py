@@ -5,7 +5,7 @@ import random
 from resourceallocation.jnecora import JNecora
 from utils.logging import focus, info, set_logging_level
 
-SCENARIO = "scenario1_het1"
+SCENARIO = "scenario1_het1_apphom_P1"
 NUM_REPETITIONS = 100
 MAX_MNS = 13  # -1  # set to -1 to allocate all MNs of each process
 LOAD_MNS_LIST_FROM_FILE = None  # "results_scenario1_het1_13_0_TEST.json"
