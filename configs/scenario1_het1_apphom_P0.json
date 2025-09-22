@@ -5,20 +5,18 @@
     "applications_import": "apps.json",
 
     "processes_array": {
-        "name": [ "P0", "P1", "P2", "P3", "P4", "P5", "P6", "P7" ],
-        "application": [ "app0", "app0", "app0", "app0", "app0", "app0", "app14", "app14" ],
+        "name": [ "P0", "P1", "P2", "P3", "P4", "P5" ],
+        "application": [ "app0", "app0", "app0", "app0", "app0", "app0" ],
         "mns": [ 1, 1, 1, 1, 1, 1, 1, 1 ],
-        "max_delay_ms": [ 100, 100, 100, 100, 100, 100, 500, 500 ],
-        "min_reliability": [ 0.99, 0.99, 0.99, 0.99, 0.99, 0.99, 0.95, 0.95 ],
+        "max_delay_ms": [ 50, 50, 50, 50, 50, 50 ],
+        "min_reliability": [ 0.99, 0.99, 0.99, 0.99, 0.99, 0.99 ],
         "aoi": [
             { "type": "line", "data": [ [ 25, 40 ], [ 75, 40 ] ] },
             { "type": "line", "data": [ [ 75, 10 ], [ 75, 80 ] ] },
             { "type": "line", "data": [ [ 25, 80 ], [ 175, 80 ] ] },
             { "type": "line", "data": [ [ 125, 10 ], [ 125, 80 ] ] },
             { "type": "line", "data": [ [ 125, 20 ], [ 190, 20 ] ] },
-            { "type": "line", "data": [ [ 100, 80 ], [ 150, 40 ] ] },
-            { "type": "line", "data": [ [ 175, 80 ], [ 120, 50 ] ] },
-            { "type": "line", "data": [ [ 10, 60 ], [ 190, 60 ] ] }
+            { "type": "line", "data": [ [ 100, 80 ], [ 150, 40 ] ] }
         ]
     },
 
@@ -30,8 +28,6 @@
             "P3": { "type": "process" },
             "P4": { "type": "process" },
             "P5": { "type": "process" },
-            "P6": { "type": "process" },
-            "P7": { "type": "process" },
             "BR0": { "type": "host", "cpu_ghz": 5, "ram_gb": 8, "infinite_parallelism": false, "qtime_dist_function": "resourceallocation.tsch.sddu_qtime.qtime(g=4)" },
             "BR1": { "type": "host", "cpu_ghz": 5, "ram_gb": 8, "infinite_parallelism": false, "qtime_dist_function": "resourceallocation.tsch.sddu_qtime.qtime(g=4)" },
             "BR2": { "type": "host", "cpu_ghz": 3, "ram_gb": 8, "infinite_parallelism": false, "qtime_dist_function": "resourceallocation.tsch.sddu_qtime.qtime(g=4)" },
@@ -49,7 +45,7 @@
         },
 
         "network": [
-            { "type": "wireless_unidir", "link_class": "TSCH", "data": { "set_a": [ "P0", "P1", "P2", "P3", "P4", "P5", "P6", "P7" ], "set_b": [ "BR0", "BR1", "BR2", "BR3", "BR4", "BR5" ], "prob_matrix": "resourceallocation.compute_brcoverage_matrix.compute_brcoverage_matrix(channel_model='mobile6tisch-3.json')" } },
+            { "type": "wireless_unidir", "link_class": "TSCH", "data": { "set_a": [ "P0", "P1", "P2", "P3", "P4", "P5" ], "set_b": [ "BR0", "BR1", "BR2", "BR3", "BR4", "BR5" ], "prob_matrix": "resourceallocation.compute_brcoverage_matrix.compute_brcoverage_matrix(channel_model='mobile6tisch-3.json')" } },
             { "type": "star_bidir", "link_class": "BB", "data": { "center": "GW", "set": [ "BR0", "BR1", "BR2", "BR3", "BR4", "BR5" ] } },
             { "type": "direct_unidir", "link_class": "CL", "data": [ "GW", "CN" ] }
         ]

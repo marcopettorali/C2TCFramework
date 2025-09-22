@@ -141,6 +141,7 @@ def plot_results():
                 label=alg,
                 color=colors[i],
                 capsize=4,
+                edgecolor="black",
             )
         ax.set_xticks(range(len(data)))
         ax.set_xticklabels([bold(x) for x in list(data.keys())])

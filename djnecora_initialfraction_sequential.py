@@ -274,6 +274,45 @@ def plot_results():
         fig.tight_layout()
         fig.savefig(f"out/plots/djnecora_initialfraction_{SCENARIO}_{sp}_{p}.pdf")
 
+    # DEBUG PLOTS: no splitting vs lazy splitting per app with worstfit and I = 0
+
+    data = {}
+    for p in applications:
+        for cp in ["worst_fit"]:
+            for i in ["0"]:
+                for sp in ["no_splitting", "lazy_splitting"]:
+                    key = f"DJ-NECORA.{sp}.{cp}"
+                    tot_mns_for_app = [
+                        sum(x["num_mns"] for br, br_data in rep_data.items() for x in br_data if x["process_name"] == p)
+                        for rep_data in results[str(i)][key]
+                    ]
+                    ci = (avg(ulb := mean_confidence_interval(tot_mns_for_app)), ci_err(ulb))
+
+                    data.setdefault(p, []).append(ci)
+
+    # plot grouped bar plot
+    from utils.plotting import latex_initialize, bold, grouped_bar_plot
+    import matplotlib.pyplot as plt
+    latex_initialize()
+    fig, ax = plt.subplots()
+    grouped_bar_plot(
+        fig,
+        ax,
+        data,
+        column_labels=[bold("No Splitting"), bold("Lazy Splitting")],
+        group_by_rows=True,
+        colors=["#80b1d3", "#b3de69"],
+        hatches=["", ""],
+        edgecolor="black",
+    )
+    ax.set_xlabel(bold("Application"))
+    ax.set_ylabel(bold("Total MNs allocated"))
+    ax.set_ylim(0, 16)
+    ax.grid(axis="y")
+    ax.set_axisbelow(True)
+    ax.legend(ncols=3)
+    fig.tight_layout()
+    fig.savefig(f"out/plots/DEBUG_djnecora_initialfraction_{SCENARIO}_no_vs_lazy_worstfit_app.pdf")
 
 import os
 
