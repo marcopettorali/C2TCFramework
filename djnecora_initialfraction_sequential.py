@@ -5,7 +5,6 @@ import random
 from resourceallocation.jnecora import JNecora
 from utils.logging import focus, info, set_logging_level
 
-SCENARIO = "scenario1_het1_apphom_P4_lotsofapps"
 NUM_REPETITIONS = 100
 MAX_MNS = 13  # -1  # set to -1 to allocate all MNs of each process
 LOAD_MNS_LIST_FROM_FILE = None  # "results_scenario1_het1_13_0_TEST.json"
@@ -13,8 +12,6 @@ LOAD_MNS_LIST_FROM_FILE = None  # "results_scenario1_het1_13_0_TEST.json"
 initial_fractions = [0, 0.5, 1]
 splitting_policies = ["no_splitting", "lazy_splitting", "greedy_splitting"]
 selection_policies = ["first_fit", "next_fit", "best_fit", "worst_fit", "random_fit"]
-
-results_file = f"out/djnecora_initialfraction_{SCENARIO}.json"
 
 JNECORA_RESULT = 67
 
@@ -32,6 +29,10 @@ def min_cpu_share_for_preallocation(context, process_name, host_label, num_mns):
 
 
 def run_experiments():
+
+    print(f"=== DJ-NECORA INITIAL FRACTION EXPERIMENTS ON {SCENARIO} ===")
+
+    results_file = f"out/djnecora_initialfraction_{SCENARIO}.json"
 
     # Run J-NECORA to get preallocation map
     jnecora_context = JNecora.load_context_from_file(f"configs/{SCENARIO}.json")
@@ -177,6 +178,8 @@ def plot_results():
     import json
     from utils.stats import mean_confidence_interval, avg, ci_err
 
+    results_file = f"out/djnecora_initialfraction_{SCENARIO}.json"
+
     with open(results_file, "r") as f:
         results = json.load(f)
 
@@ -316,10 +319,21 @@ def plot_results():
     fig.tight_layout()
     fig.savefig(f"out/plots/DEBUG_djnecora_initialfraction_{SCENARIO}_no_vs_lazy_worstfit_app.pdf")
 
-import os
 
-# Check if results file does not exist
-if not os.path.exists(results_file):
-    run_experiments()
+if __name__ == "__main__":
+    import os
+    import argparse
 
-plot_results()
+    # retrieve positional scenario name from command line arguments
+    parser = argparse.ArgumentParser()
+    parser.add_argument("scenario", type=str, help="Scenario name (without .json)")
+    args = parser.parse_args()
+    SCENARIO = args.scenario
+
+    # Check if results file does not exist
+
+    results_file = f"out/djnecora_initialfraction_{SCENARIO}.json"
+    if not os.path.exists(results_file):
+        run_experiments()
+
+    plot_results()
