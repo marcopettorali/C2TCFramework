@@ -2,7 +2,7 @@ from resourceallocation.djnecora import DJNecora
 from networking.entities import Host, Process
 from utils.logging import info, print
 
-SCENARIO = "scenario1"
+SCENARIO = "scenario1_het1"
 MAX_MNS = 13
 context = DJNecora.load_context_from_file(f"configs/{SCENARIO}.json")
 
@@ -49,17 +49,18 @@ import matplotlib.pyplot as plt
 from utils.plotting import latex_initialize, bold
 latex_initialize()
 
-colors = ["tab:red", "tab:blue", "tab:green",  "tab:purple", "tab:orange","tab:olive"]
+colors = ["tab:red", "tab:blue", "tab:green",  "tab:purple", "tab:orange","gold"]
 markers = ['x', 'o', 's', 'd', 'v', '^']
 for process_name, mns_data in processes_data.items():
     mns_values = list(mns_data.keys())
     cpu_share_values = list(mns_data.values())
     plt.plot(mns_values, cpu_share_values, label=bold(process_name), color=colors.pop(0), marker=markers.pop(0))
 
-plt.xlim(0,13)
+plt.xlim(0,13.5)
 plt.ylim(0,6)
 plt.xlabel(bold("Number of MNs"))
 plt.ylabel(bold("CPU usage (GHz)"))
 plt.legend(ncols=3)
 plt.grid()
-plt.show()
+plt.tight_layout()
+plt.savefig(f"out/plots/cpu_usage_per_process_{SCENARIO}.pdf")

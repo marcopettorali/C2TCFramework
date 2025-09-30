@@ -164,7 +164,7 @@ def draw_paths(graph, ax, src, dest):
 
 # GROUPED BAR PLOT
 def grouped_bar_plot(
-    fig: plt.Figure, ax: plt.Axes, data_matrix: dict, column_labels: list, group_by_rows=True, colors=None, hatches=None, capsize=4, **kwargs_bar
+    fig: plt.Figure, ax: plt.Axes, data_matrix: dict, column_labels: list, group_by_rows=True, colors=None, hatches=None, capsize=4, bar_width=0.8, **kwargs_bar
 ):
     """
     This function creates a grouped bar plot from a 2D data matrix dict.
@@ -186,7 +186,7 @@ def grouped_bar_plot(
 
     # data shape: (num_groups, num_bars, 2)
     num_groups, num_bars = data.shape[:2]
-    bar_width = 0.8 / num_bars
+    bar_width = bar_width / num_bars
     x = np.arange(num_groups)
 
     # define colors and hatches

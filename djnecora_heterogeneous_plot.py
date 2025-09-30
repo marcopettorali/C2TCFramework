@@ -3,6 +3,7 @@ from utils.stats import mean_confidence_interval, avg, ci_err
 from utils.logging import print
 
 SCENARIOS = ["scenario1_het1", "scenario1_het2", "scenario1_het3", "scenario1_hom"]
+JNECORA_RESULTS = [67, 80, 80, 74]
 ALGORITHM = "DJ-NECORA.lazy_splitting.first_fit"
 
 # LOAD DATA
@@ -35,9 +36,38 @@ from utils.plotting import latex_initialize, bold, grouped_bar_plot
 import matplotlib.pyplot as plt
 
 latex_initialize()
+color = (lambda x: "#80b1d3" if "no" in x else "#b3de69" if "lazy" in x else "#fb8072")(ALGORITHM)
 
 fig, ax = plt.subplots()
-grouped_bar_plot(fig, ax, results, [0, 0.5, 1])
+grouped_bar_plot(
+    fig,
+    ax,
+    results,
+    [bold(f"I={int(x*100)}\\%") for x in [0, 0.5, 1]],
+    hatches=["", "o", "x"],
+    colors=[color] * len(SCENARIOS),
+    edgecolor="black",
+)
+# Add JNECORA results
+
+# horizontal lines for each JNECORA result
+for i, scenario in enumerate(SCENARIOS):
+    ax.hlines(
+        JNECORA_RESULTS[i],
+        i-0.15,
+        i+0.7,
+        colors="red",
+        linestyles="dashed",
+        label=None,
+    )
+
 ax.set_xticklabels([bold(x.split("_")[-1].upper()) for x in SCENARIOS])
+ax.yaxis.grid(True)
+ax.yaxis.set_major_locator(plt.MultipleLocator(10))
+ax.set_ylim(0, 95)
+ax.set_axisbelow(True)
+
+ax.legend(ncols=3, fontsize=16, loc="upper center")
+
 fig.tight_layout()
 plt.show()
