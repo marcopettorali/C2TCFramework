@@ -126,7 +126,7 @@ def plot_results():
     ax.yaxis.grid(True)
     ax.yaxis.set_major_locator(plt.MultipleLocator(10))
     ax.set_axisbelow(True)
-    ax.set_ylim(0, 80)
+    ax.set_ylim(0, 95)
     plt.tight_layout()
     plt.savefig(f"out/plots/djnecora_impactsplitting_{SCENARIO}.pdf")
 

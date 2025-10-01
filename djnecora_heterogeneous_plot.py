@@ -61,13 +61,15 @@ for i, scenario in enumerate(SCENARIOS):
         label=None,
     )
 
-ax.set_xticklabels([bold(x.split("_")[-1].upper()) for x in SCENARIOS])
+ax.set_xticklabels([x.split("_")[-1].upper() for x in SCENARIOS])
+ax.set_xlabel(bold("Scenario"))
 ax.yaxis.grid(True)
 ax.yaxis.set_major_locator(plt.MultipleLocator(10))
 ax.set_ylim(0, 95)
+ax.set_ylabel(bold("Total MNs Allocated"))
 ax.set_axisbelow(True)
 
 ax.legend(ncols=3, fontsize=16, loc="upper center")
 
 fig.tight_layout()
-plt.show()
+fig.savefig(f"out/plots/djnecora_heterogeneous_plot_{ALGORITHM.replace('.', '_')}.pdf")

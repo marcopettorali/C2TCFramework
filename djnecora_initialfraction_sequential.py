@@ -222,7 +222,9 @@ def plot_results():
 
         ax.set_xlabel(bold("Host selection policy"))
         ax.set_ylabel(bold("Total MNs allocated"))
-        ax.set_ylim(0, 90)
+        ax.set_ylim(0, 95)
+        # y axis has a grid every 10
+        ax.yaxis.set_major_locator(plt.MultipleLocator(10))
         ax.grid(axis="y")
         ax.set_axisbelow(True)
         ax.legend(ncols=3)

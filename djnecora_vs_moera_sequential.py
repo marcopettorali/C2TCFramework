@@ -84,8 +84,9 @@ def plot_results():
 
     oracle = Oracle()
     oracle.set_context(context)
-    oracle_allocation = oracle.allocate_all_processes(max_mns_per_process=13)
+    oracle_allocation = oracle.allocate_all_processes(max_mns_per_process=13, allocation_mode="max_apps_max_mns", splitting_mode="optimal")
     total_mns_oracle = sum(m for host_alloc in oracle_allocation.values() for _, m, _ in host_alloc)
+    focus(oracle_allocation)
 
     # MOERA
     with open(results_file, "r") as f:
@@ -148,7 +149,7 @@ def plot_results():
         plt.setp(ax.get_xticklabels(), fontsize=10)
         ax.set_xlabel(bold("Algorithm"))
         ax.set_ylabel(bold("Total MNs allocated"))
-        ax.set_ylim(0, 90)
+        ax.set_ylim(0, 95)
         ax.grid(axis="y")
         ax.set_axisbelow(True)
         fig.tight_layout()
