@@ -23,7 +23,7 @@ Adaptations we made to MOERA to compare it with DJ-NECORA:
 - For E_O, we use CPU usage for fair comparison with DJ-NECORA
   Hence E_O = \\sum_{s,u} x_{s,u,t}
 - For E_Q, MOERA assumes delays to be constant, and only considers network delays.
-  Hence, we use the average delay of the distribution we use for DJ-NECORA.
+  Hence, we use the **average delay** of the distribution we use for DJ-NECORA.
   Moreover, MOERA does not consider packet loss.
 - For E_R, we set it to 0 (we simply do not consider it in DJ-NECORA)
 - For E_M, we set it to 0 (we simply do not consider it in DJ-NECORA).
