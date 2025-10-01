@@ -1,5 +1,76 @@
+"""
+OJSTR (simplified, deadline-driven) — Adaptation Assumptions
+===========================================================
+
+This implementation adapts "Online Joint Service placement, Task scheduling,
+and Resource allocation" (OJSTR) to a minimal, *cost-free* and *energy-free*
+setting focused on meeting per-task deadlines and maximizing served tasks.
+
+A. Scope and Decisions per Time Slot
+------------------------------------
+- The system operates in discrete time slots of duration `slot_duration_s`.
+- At each slot we take two decisions:
+  1) Service placement on each edge (0-1 knapsack by storage capacity).
+  2) Task scheduling + resource allocation (device/local vs edge vs cloud).
+
+B. What We Model (and What We Don’t)
+------------------------------------
+- No monetary costs and no energy models: removed entirely.
+- Cloud compute is assumed abundant; its *compute time* is neglected.
+- Device/edge compute time IS modeled: `time = cycles / cpu_rate`.
+- Uplink transmission is modeled as a **fixed delay** you provide per
+  (device, edge) pair: `uplink_delay_to_edge_s[edge_id]` (seconds).
+  It is used both for sending to the *edge* and, via the *best-edge uplink*,
+  for sending to the *cloud*.
+- Task size is accepted by the API for compatibility, but currently ignored;
+  the uplink time does NOT scale with size (you provide the delay directly).
+
+C. Deadlines and Feasibility
+----------------------------
+- Each service has a per-task DEADLINE (seconds).
+- A task is feasible on:
+  - LOCAL: if `cycles/service / device_cpu_rate <= deadline`
+  - EDGE e: if `uplink_delay(dev,e) + cycles/service / edge_cpu_rate <= deadline`
+  - CLOUD: if `min_e uplink_delay(dev,e) + cloud_rtt_s <= deadline`
+- Per slot we also enforce CPU *budgets* (cycles available in the slot):
+  device: `device_cpu_rate * slot_duration_s`
+  edge:   `edge_cpu_rate   * slot_duration_s`
+
+D. Placement (per-edge 0-1 Knapsack)
+------------------------------------
+- Value(service, edge) = estimated number of currently queued tasks (across
+  devices) of that service that COULD meet the deadline at that edge, given
+  the provided uplink delays and the edge CPU speed.
+- Weight = service image size (MB). Capacity = edge storage capacity (MB).
+- We pick the set of services maximizing that estimated feasible demand.
+
+E. Scheduling (Greedy, Min Completion Time)
+-------------------------------------------
+- For each device with a head-of-line (HoL) task, enumerate feasible options
+  {local, any edge with the service placed, cloud}. Each option has a total
+  completion time:
+    - local: `cycles/device_cpu`
+    - edge:  `uplink_delay + cycles/edge_cpu`
+    - cloud: `best_uplink_delay + cloud_rtt_s`
+- Pick the option with the MINIMUM completion time while respecting CPU
+  budgets for the current slot. If none is feasible, the task is deferred.
+
+F. Dynamics / Online Operations
+-------------------------------
+- `add_service(...)`: dynamically add a new service/application.
+- `add_device(...)`:  dynamically add a new device, providing its
+  `uplink_delay_to_edge_s` mapping.
+- `add_task(device, service, size_bits)`: dynamically enqueue a request
+  (size is currently ignored — delay is directly provided per device-edge).
+
+G. Optional Network Constant
+----------------------------
+- `cloud_rtt_s` (default 0.0): extra network delay when sending to the cloud
+  (e.g., routing/backhaul/round-trip). Set > 0 if you want to penalize cloud.
+"""
+
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 import math
 from collections import deque
 
@@ -44,14 +115,16 @@ class Device:
         Unique device id.
     cpu_cycles_per_s : float
         Local CPU capacity (cycles/second).
-    uplink_rate_to_edge_mbps : Dict[int, float]
-        Map edge_id -> achievable uplink rate (Mbit/s).
+    uplink_delay_to_edge_s : Dict[int, float]
+        Map edge_id -> *fixed uplink delay in seconds* to reach that edge.
+        (Provided by you; replaces any rate-based calculation.)
     queue : deque
-        FIFO of pending tasks (service_id, size_bits).
+        FIFO of pending tasks (service_id, size_bits). size_bits accepted
+        for compatibility, but currently unused in time computations.
     """
     id: int
     cpu_cycles_per_s: float
-    uplink_rate_to_edge_mbps: Dict[int, float] = field(default_factory=dict)
+    uplink_delay_to_edge_s: Dict[int, float] = field(default_factory=dict)
     queue: deque = field(default_factory=deque)
 
 
@@ -80,7 +153,7 @@ class EdgeNode:
 @dataclass
 class Cloud:
     """
-    Cloud node (compute assumed abundant; only uplink time matters here).
+    Cloud node (compute assumed abundant; only uplink delay + cloud_rtt_s matter).
     """
     cpu_cycles_per_s: float = 1e15  # effectively 'infinite' here
 
@@ -94,8 +167,11 @@ class OJSTRParams:
     ----------
     slot_duration_s : float
         Slot duration in seconds (scheduling/allocation window).
+    cloud_rtt_s : float
+        Extra network delay term when offloading to cloud (default 0.0).
     """
     slot_duration_s: float = 1.0
+    cloud_rtt_s: float = 0.0
 
 
 # ===========================
@@ -104,7 +180,7 @@ class OJSTRParams:
 
 class OJSTRController:
     """
-    OJSTR-like online controller (simplified, cost/energy removed).
+    OJSTR-like online controller (simplified, cost/energy removed; delays provided directly).
 
     Per slot:
       1) Service placement (per-edge knapsack) to maximize the number of
@@ -156,16 +232,17 @@ class OJSTRController:
         return sid
 
     def add_device(self, cpu_cycles_per_s: float,
-                   uplink_rate_to_edge_mbps: Dict[int, float]) -> int:
+                   uplink_delay_to_edge_s: Dict[int, float]) -> int:
         """
-        Dynamically add a new device with its radio rates toward edges.
+        Dynamically add a new device with its *delays* toward edges (seconds).
+        Example: {edge_id_0: 0.015, edge_id_1: 0.030}
         """
         did = self._next_device_id
         self._next_device_id += 1
         self.devices[did] = Device(
             id=did,
             cpu_cycles_per_s=cpu_cycles_per_s,
-            uplink_rate_to_edge_mbps=dict(uplink_rate_to_edge_mbps),
+            uplink_delay_to_edge_s=dict(uplink_delay_to_edge_s),
         )
         return did
 
@@ -174,6 +251,7 @@ class OJSTRController:
     def add_task(self, device_id: int, service_id: int, size_bits: int) -> None:
         """
         Add a new task request dynamically (device -> service).
+        NOTE: size_bits is currently ignored, since uplink delay is provided directly.
         """
         self.devices[device_id].queue.append((service_id, size_bits))
 
@@ -214,9 +292,9 @@ class OJSTRController:
 
         Value(service, edge) = estimated number of queued tasks that
         could meet their deadline at this edge given:
-            - device->edge uplink rate
+            - device->edge uplink delays (seconds) you provided
             - edge CPU speed and per-task cycles
-            - task sizes currently in queues
+            - task types currently in queues (size ignored)
 
         We then pick the subset of services (by storage capacity) maximizing
         the total estimated feasible demand at that edge.
@@ -229,18 +307,17 @@ class OJSTRController:
                 # Count how many queued tasks (across devices) of this service
                 # could meet deadline if sent to this edge
                 for d in self.devices.values():
-                    rate_mbps = d.uplink_rate_to_edge_mbps.get(e.id, 0.0)
-                    if rate_mbps <= 0:
+                    delay_to_e = d.uplink_delay_to_edge_s.get(e.id, math.inf)
+                    if delay_to_e == math.inf:
                         continue
                     if not d.queue:
                         continue
                     # Consider all queued tasks (coarse estimate)
-                    for (req_sid, size_bits) in d.queue:
+                    for (req_sid, _size_bits) in d.queue:
                         if req_sid != sid:
                             continue
-                        uplink_time = (size_bits / 1e6) / rate_mbps  # seconds
                         edge_exec_time = s.cycles_per_task / e.cpu_cycles_per_s
-                        total_time = uplink_time + edge_exec_time
+                        total_time = delay_to_e + edge_exec_time
                         if total_time <= s.deadline_s:
                             feasible_count += 1
 
@@ -301,7 +378,6 @@ class OJSTRController:
         # Per-node CPU budgets in cycles (for this slot)
         device_budget = {d.id: d.cpu_cycles_per_s * T for d in self.devices.values()}
         edge_budget = {e.id: e.cpu_cycles_per_s * T for e in self.edges.values()}
-        # cloud assumed abundant; only uplink time matters here
 
         served_tasks = []
         dropped_or_deferred = []
@@ -317,7 +393,7 @@ class OJSTRController:
 
         # Helper: best feasible completion time for sorting
         def best_feasible_total_time(dev_id: int, sid: int, size_bits: int) -> float:
-            options = self._enumerate_options(dev_id, sid, size_bits,
+            options = self._enumerate_options(dev_id, sid,
                                               device_budget, edge_budget)
             if not options:
                 return math.inf
@@ -328,7 +404,7 @@ class OJSTRController:
 
         # Serve in order
         for dev_id, sid, size_bits, _dl in candidates:
-            options = self._enumerate_options(dev_id, sid, size_bits,
+            options = self._enumerate_options(dev_id, sid,
                                               device_budget, edge_budget)
             if not options:
                 dropped_or_deferred.append((dev_id, sid))
@@ -356,16 +432,17 @@ class OJSTRController:
             "device_cpu_used": {d.id: d.cpu_cycles_per_s * T - device_budget[d.id] for d in self.devices.values()},
         }
 
-    def _enumerate_options(self, dev_id: int, service_id: int, size_bits: int,
+    def _enumerate_options(self, dev_id: int, service_id: int,
                            device_budget: Dict[int, float],
                            edge_budget: Dict[int, float]) -> List[Dict]:
         """
         Return all feasible options with completion time for (dev, service, task).
-        Feasibility is checked against deadline and remaining budgets.
+        Feasibility is checked against per-task deadline and remaining CPU budgets.
         No costs, no energy; we choose the option with MINIMUM total_time.
         """
         d = self.devices[dev_id]
         s = self.services[service_id]
+        cloud_rtt = self.params.cloud_rtt_s
 
         options: List[Dict] = []
 
@@ -374,39 +451,34 @@ class OJSTRController:
         if local_exec_time <= s.deadline_s and device_budget[dev_id] >= s.cycles_per_task:
             options.append({"where": "local", "total_time": local_exec_time})
 
-        # --- Edge execution (any edge with the service placed + radio link) ---
+        # --- Edge execution (any edge with the service placed) ---
         for e in self.edges.values():
             if service_id not in e.placed_services:
                 continue
-            rate_mbps = d.uplink_rate_to_edge_mbps.get(e.id, 0.0)
-            if rate_mbps <= 0:
+            delay_to_e = d.uplink_delay_to_edge_s.get(e.id, math.inf)
+            if delay_to_e == math.inf:
                 continue
 
-            uplink_time = (size_bits / 1e6) / rate_mbps  # seconds
             edge_exec_time = s.cycles_per_task / e.cpu_cycles_per_s
-            total_time = uplink_time + edge_exec_time
+            total_time = delay_to_e + edge_exec_time
             if total_time <= s.deadline_s and edge_budget[e.id] >= s.cycles_per_task:
                 options.append({"where": "edge", "edge_id": e.id, "total_time": total_time})
 
         # --- Cloud execution ---
-        # Assume cloud compute time negligible; completion time ~ uplink via best available radio.
-        best_uplink = math.inf
-        for e in self.edges.values():
-            rate_mbps = d.uplink_rate_to_edge_mbps.get(e.id, 0.0)
-            if rate_mbps > 0:
-                uplink_time = (size_bits / 1e6) / rate_mbps
-                best_uplink = min(best_uplink, uplink_time)
-        if best_uplink < math.inf and best_uplink <= s.deadline_s:
-            options.append({"where": "cloud", "total_time": best_uplink})
+        # Use best available (device->edge) uplink delay as access path to the cloud.
+        best_uplink = min(d.uplink_delay_to_edge_s.values(), default=math.inf)
+        cloud_time = best_uplink + cloud_rtt
+        if cloud_time <= s.deadline_s:
+            options.append({"where": "cloud", "total_time": cloud_time})
 
         return options
 
 
 # ===========================
-# Minimal usage example
+# Minimal usage example (delays-based)
 # ===========================
 if __name__ == "__main__":
-    params = OJSTRParams(slot_duration_s=1.0)
+    params = OJSTRParams(slot_duration_s=1.0, cloud_rtt_s=0.02)  # e.g., 20 ms extra when using cloud
     ctrl = OJSTRController(params)
 
     # Edges
@@ -419,14 +491,14 @@ if __name__ == "__main__":
     sB = ctrl.add_service(name="AnomalyDetect", store_size_mb=40,
                           cycles_per_task=4.0e8, deadline_s=0.5)
 
-    # Devices (radio links only)
+    # Devices (provide *delays* in seconds to each edge)
     d0 = ctrl.add_device(cpu_cycles_per_s=2e9,
-                         uplink_rate_to_edge_mbps={e0: 50.0, e1: 10.0})
+                         uplink_delay_to_edge_s={e0: 0.02, e1: 0.05})
     d1 = ctrl.add_device(cpu_cycles_per_s=1e9,
-                         uplink_rate_to_edge_mbps={e0: 20.0, e1: 30.0})
+                         uplink_delay_to_edge_s={e0: 0.04, e1: 0.03})
 
-    # Dynamic arrivals
-    ctrl.add_task(d0, sA, size_bits=8_000_000)  # 1 MB
+    # Dynamic arrivals (size_bits ignored here)
+    ctrl.add_task(d0, sA, size_bits=8_000_000)
     ctrl.add_task(d0, sB, size_bits=4_000_000)
     ctrl.add_task(d1, sA, size_bits=8_000_000)
 
