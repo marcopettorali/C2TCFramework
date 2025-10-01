@@ -1,40 +1,38 @@
 """
-OJSTR (simplified, deadline-driven) — Adaptation Assumptions
-===========================================================
+OJSTR (simplified, deadline-driven) — Assumptions & Adaptation Notes
+====================================================================
 
 This implementation adapts "Online Joint Service placement, Task scheduling,
-and Resource allocation" (OJSTR) to a minimal, *cost-free* and *energy-free*
-setting focused on meeting per-task deadlines and maximizing served tasks.
+and Resource allocation" (OJSTR) to a minimal, cost-free / energy-free setting
+focused on meeting per-task deadlines and maximizing the number of tasks served.
 
-A. Scope and Decisions per Time Slot
-------------------------------------
-- The system operates in discrete time slots of duration `slot_duration_s`.
-- At each slot we take two decisions:
-  1) Service placement on each edge (0-1 knapsack by storage capacity).
-  2) Task scheduling + resource allocation (device/local vs edge vs cloud).
+A) OJSTR Paper Assumptions (conceptual model)
+---------------------------------------------
+- Compute time on device/edge is modeled via CPU capacity:
+  time = cycles / cpu_rate.
+- Uplink transmission is modeled through radio rates (and power), so upload
+  time depends on task size and channel conditions.
+- Optimization includes cost components (e.g., device energy, cloud tenancy).
+- Cloud is not assumed “free by default” in the cost model (tenancy may apply).
+- Service placement may be reconfigured over time (subject to constraints).
 
-B. What We Model (and What We Don’t)
-------------------------------------
-- No monetary costs and no energy models: removed entirely.
-- Cloud compute is assumed abundant; its *compute time* is neglected.
-- Device/edge compute time IS modeled: `time = cycles / cpu_rate`.
-- Uplink transmission is modeled as a **fixed delay** you provide per
-  (device, edge) pair: `uplink_delay_to_edge_s[edge_id]` (seconds).
-  It is used both for sending to the *edge* and, via the *best-edge uplink*,
-  for sending to the *cloud*.
-- Task size is accepted by the API for compatibility, but currently ignored;
-  the uplink time does NOT scale with size (you provide the delay directly).
+B) Our Adaptation Assumptions (differences vs paper)
+----------------------------------------------------
+- No monetary costs and no energy models: entirely removed.
+- Cloud compute is assumed abundant; its compute time is neglected. An optional
+  constant network delay `cloud_rtt_s` can be used when offloading to cloud.
+TODO - Device/edge compute time IS modeled: time = cycles / cpu_rate (kept as in OJSTR).
+- Uplink is modeled as a **fixed delay** provided per (device, edge) pair:
+  `uplink_delay_to_edge_s[edge_id]` in seconds. This same best-edge uplink is
+  used as access path to the cloud (plus `cloud_rtt_s` if set).
+TODO - Task size is accepted by the API for compatibility, but **ignored** for uplink;
+  upload time does **not** scale with bits because you directly provide the delay.
+- **Placement persistence (add-only)**: once a service is placed on an edge,
+  it CANNOT be deallocated nor migrated to another host. Placement is monotonic
+  (we only add new services if there is remaining storage capacity). This is a
+  stricter policy than typical OJSTR reconfiguration and is enforced here.
 
-C. Deadlines and Feasibility
-----------------------------
-- Each service has a per-task DEADLINE (seconds).
-- A task is feasible on:
-  - LOCAL: if `cycles/service / device_cpu_rate <= deadline`
-  - EDGE e: if `uplink_delay(dev,e) + cycles/service / edge_cpu_rate <= deadline`
-  - CLOUD: if `min_e uplink_delay(dev,e) + cloud_rtt_s <= deadline`
-- Per slot we also enforce CPU *budgets* (cycles available in the slot):
-  device: `device_cpu_rate * slot_duration_s`
-  edge:   `edge_cpu_rate   * slot_duration_s`
+
 
 D. Placement (per-edge 0-1 Knapsack)
 ------------------------------------
@@ -288,47 +286,50 @@ class OJSTRController:
 
     def _service_placement_knapsack_all_edges(self) -> None:
         """
-        For each edge, decide which services to keep/place this slot.
-
-        Value(service, edge) = estimated number of queued tasks that
-        could meet their deadline at this edge given:
-            - device->edge uplink delays (seconds) you provided
-            - edge CPU speed and per-task cycles
-            - task types currently in queues (size ignored)
-
-        We then pick the subset of services (by storage capacity) maximizing
-        the total estimated feasible demand at that edge.
+        For each edge, add (if space permits) new services that maximize the
+        estimated number of currently queued tasks that could meet deadlines at that edge.
+        NOTE: Placement is PERSISTENT (add-only): already placed services remain placed
+        and are never removed or migrated.
         """
         for e in self.edges.values():
-            # Build candidate items (service -> (weight, value_score))
+            # Compute remaining storage capacity (MB) considering already-placed services
+            used_mb = 0
+            for sid in e.placed_services:
+                used_mb += self.services[sid].store_size_mb
+            remaining_mb = max(e.storage_capacity_mb - used_mb, 0)
+
+            # Build candidate items ONLY for services NOT yet placed on this edge
             items: List[Tuple[int, int, float]] = []  # (service_id, weight_MB, value=feasible_count)
-            for sid, s in self.services.items():
-                feasible_count = 0
-                # Count how many queued tasks (across devices) of this service
-                # could meet deadline if sent to this edge
-                for d in self.devices.values():
-                    delay_to_e = d.uplink_delay_to_edge_s.get(e.id, math.inf)
-                    if delay_to_e == math.inf:
-                        continue
-                    if not d.queue:
-                        continue
-                    # Consider all queued tasks (coarse estimate)
-                    for (req_sid, _size_bits) in d.queue:
-                        if req_sid != sid:
+            if remaining_mb > 0:
+                for sid, s in self.services.items():
+                    if sid in e.placed_services:
+                        continue  # already placed -> persistent, skip as candidate
+
+                    feasible_count = 0
+                    # Count how many queued tasks (across devices) of this service
+                    # could meet deadline if sent to this edge
+                    for d in self.devices.values():
+                        delay_to_e = d.uplink_delay_to_edge_s.get(e.id, math.inf)
+                        if delay_to_e == math.inf or not d.queue:
                             continue
-                        edge_exec_time = s.cycles_per_task / e.cpu_cycles_per_s
-                        total_time = delay_to_e + edge_exec_time
-                        if total_time <= s.deadline_s:
-                            feasible_count += 1
+                        for (req_sid, _size_bits) in d.queue:
+                            if req_sid != sid:
+                                continue
+                            edge_exec_time = s.cycles_per_task / e.cpu_cycles_per_s
+                            total_time = delay_to_e + edge_exec_time
+                            if total_time <= s.deadline_s:
+                                feasible_count += 1
 
-                if feasible_count > 0 or sid in e.placed_services:  # allow inertia
-                    items.append((sid, s.store_size_mb, float(feasible_count)))
+                    if feasible_count > 0:
+                        items.append((sid, s.store_size_mb, float(feasible_count)))
 
-            # Solve 0-1 knapsack by DP (capacity = e.storage_capacity_mb)
-            chosen = self._knapsack_01_dp(items, e.storage_capacity_mb)
+            # Solve 0-1 knapsack by DP on the REMAINING capacity
+            chosen = self._knapsack_01_dp(items, remaining_mb)
 
-            # Update placement set (chosen is the list of service ids)
-            e.placed_services = set(chosen)
+            # Persistent placement: ADD (do not replace) chosen services
+            for sid in chosen:
+                e.placed_services.add(sid)
+
 
     @staticmethod
     def _knapsack_01_dp(items: List[Tuple[int, int, float]], capacity: int) -> List[int]:
