@@ -164,24 +164,61 @@ class OJSTR:
         For each edge, place any service not yet installed if there exists
         at least one device bound to that service such that the task would
         meet its deadline on this edge (all times in ms).
+
+        Aggiunte: debug() con motivazioni chiare per 'placed' / 'not placed'.
         """
+        debug("\n== SERVICE PLACEMENT (add-only) ==")
         for e in self.edges.values():
+            debug(f"[edge {e.id}] capacity={e.cpu_capacity_ghz:.3f} GHz")
             for sid, s in self.services.items():
                 if sid in e.placed_services:
+                    # Evita rumore: commenta questa riga se preferisci non loggare i già piazzati
+                    debug(f"  = service {sid}: already placed on edge {e.id}")
                     continue
-                feasible = False
-                for d in self.devices.values():
-                    if d.service_id != sid:
-                        continue
+
+                devices_for_service = [d for d in self.devices.values() if d.service_id == sid]
+                if not devices_for_service:
+                    debug(f"  ✗ service {sid}: no devices bound → not placed on edge {e.id}")
+                    continue
+
+                best = None  # (slack_ms, dev_id, delay_to_e_ms, edge_exec_ms, total_ms)
+                no_link = 0
+                for d in devices_for_service:
                     delay_to_e_ms = d.uplink_delay_to_edge_ms.get(e.id, math.inf)
                     if delay_to_e_ms == math.inf:
+                        no_link += 1
                         continue
                     edge_exec_ms = 1000.0 * (s.cycles_per_invocation_gcyc / e.cpu_capacity_ghz)
-                    if delay_to_e_ms + edge_exec_ms <= s.deadline_ms:
-                        feasible = True
-                        break
-                if feasible:
+                    total_ms = delay_to_e_ms + edge_exec_ms
+                    slack_ms = s.deadline_ms - total_ms
+                    if (best is None) or (slack_ms > best[0]):
+                        best = (slack_ms, d.id, delay_to_e_ms, edge_exec_ms, total_ms)
+
+                if best is None:
+                    debug(f"  ✗ service {sid}: not placed on edge {e.id} — no reachable devices (missing uplink for {no_link} device(s))")
+                    continue
+
+                slack_ms, dev_id, delay_to_e_ms, edge_exec_ms, total_ms = best
+                if slack_ms >= 0:
                     e.placed_services.add(sid)
+                    debug(
+                        "  ✓ place service {sid} on edge {eid}: "
+                        "chosen dev {dev} → uplink={uplink:.1f} ms + exec={exec:.1f} ms "
+                        "= {tot:.1f} ms ≤ deadline={dl:.1f} ms (slack {slack:.1f} ms)"
+                        .format(sid=sid, eid=e.id, dev=dev_id,
+                                uplink=delay_to_e_ms, exec=edge_exec_ms,
+                                tot=total_ms, dl=s.deadline_ms, slack=slack_ms)
+                    )
+                else:
+                    debug(
+                        "  ✗ service {sid}: not placed on edge {eid} — best attempt with dev {dev}: "
+                        "uplink={uplink:.1f} ms + exec={exec:.1f} ms = {tot:.1f} ms > deadline={dl:.1f} ms "
+                        "(deficit {deficit:.1f} ms)"
+                        .format(sid=sid, eid=e.id, dev=dev_id,
+                                uplink=delay_to_e_ms, exec=edge_exec_ms,
+                                tot=total_ms, dl=s.deadline_ms, deficit=-slack_ms)
+                    )
+
 
     # ===========================
     # Public: Final allocation snapshot (persistent tasks)
@@ -429,7 +466,11 @@ class OJSTRWrapper:
             deadline_ms = process.max_delay_ms
 
             # computing average # cycles per invocation (Gcycle)
-            cycles_per_invocation_gcyc = process.application.benchmark.distribution.pdf.mean_value() * process.application.benchmark.cpu_ghz
+            cycles_per_invocation_gcyc = (
+                process.application.benchmark.distribution.pdf.mean_value()
+                * process.application.benchmark.cpu_ghz
+                / 1000  # / 1000 convert to ms
+            )
             service_id = self.ojstr.add_service(cycles_per_invocation_gcyc=cycles_per_invocation_gcyc, deadline_ms=deadline_ms)
             self.service_to_id_map[process_name] = service_id
             debug(
@@ -459,34 +500,12 @@ class OJSTRWrapper:
 # Minimal usage example (GHz/Gcycle; persistent 1 task per device)
 # ===========================
 if __name__ == "__main__":
-    set_logging_level("DEBUG")
+    set_logging_level("info")
     context = JNecora.load_context_from_file("configs/scenario1_het1.json", cpu_shares_descriptor={"fair_shares": "num_processes"})
     ojstr = OJSTRWrapper(context)
+     
     ojstr.add_1_mn("P0")
 
     plan = ojstr.compute_final_allocation()
 
     info(plan)
-    exit()
-
-    # # Cloud: 500 GHz, 20 ms one-way extra to reach cloud
-    # ctrl = OJSTR(cloud_net_oneway_ms=20.0, cloud_cpu_capacity_ghz=500.0)
-
-    # # Edges (GHz)
-    # e0 = ctrl.add_edge(cpu_capacity_ghz=5.0)  # 5 GHz
-    # e1 = ctrl.add_edge(cpu_capacity_ghz=3.0)  # 3 GHz
-
-    # # Services (Gcycle per invocation, deadline in **ms**)
-    # sA = ctrl.add_service(cycles_per_invocation_gcyc=1.0, deadline_ms=800.0)  # 1 Gcycle, 800 ms
-    # sB = ctrl.add_service(cycles_per_invocation_gcyc=0.4, deadline_ms=500.0)  # 0.4 Gcycle, 500 ms
-
-    # # Devices: uplink delays in **ms**
-    # d0 = ctrl.add_device(service_id=sA, uplink_delay_to_edge_ms={e0: 20.0, e1: 50.0})
-    # d1 = ctrl.add_device(service_id=sB, uplink_delay_to_edge_ms={e0: 40.0, e1: 30.0})
-
-    # # --- Final allocation snapshot (persistent plan; devices reuse it over time) ---
-    # plan = ctrl.compute_final_allocation()
-    # # Print using your logger
-    # from utils.logging import print
-
-    # print(plan)
