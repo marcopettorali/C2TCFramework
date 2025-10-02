@@ -4,506 +4,489 @@ OJSTR (simplified, deadline-driven) — Assumptions & Adaptation Notes
 
 This implementation adapts "Online Joint Service placement, Task scheduling,
 and Resource allocation" (OJSTR) to a minimal, cost-free / energy-free setting
-focused on meeting per-task deadlines and maximizing the number of tasks served.
+focused on meeting per-task deadlines.
+
+UNITS (this implementation)
+---------------------------
+- **All CPU rates** (edge, cloud, allocated shares) are in **GHz** (i.e., Gcycle/s).
+- **All loads** (service compute per invocation) are in **Gcycle**.
+- **All times** (deadlines, uplink, network, compute, totals) are in **milliseconds (ms)**.
+  Time [ms] = 1000 * (Gcycle / GHz).
 
 A) OJSTR Paper Assumptions (conceptual model)
 ---------------------------------------------
-- Compute time on device/edge is modeled via CPU capacity:
-  time = cycles / cpu_rate.
-- Uplink transmission is modeled through radio rates (and power), so upload
-  time depends on task size and channel conditions.
-- Optimization includes cost components (e.g., device energy, cloud tenancy).
-- Cloud is not assumed “free by default” in the cost model (tenancy may apply).
-- Service placement may be reconfigured over time (subject to constraints).
+- Compute time on edge/cloud is cycles / cpu_rate.
+- Uplink transmission depends on radio rates and task size in the original model.
+- Optimization includes costs (energy, cloud tenancy) — not used here.
+- Service placement may be reconfigured over time.
 
 B) Our Adaptation Assumptions (differences vs paper)
 ----------------------------------------------------
-- No monetary costs and no energy models: entirely removed.
-- Cloud compute is assumed abundant; its compute time is neglected. An optional
-  constant network delay `cloud_rtt_s` can be used when offloading to cloud.
-TODO - Device/edge compute time IS modeled: time = cycles / cpu_rate (kept as in OJSTR).
-- Uplink is modeled as a **fixed delay** provided per (device, edge) pair:
-  `uplink_delay_to_edge_s[edge_id]` in seconds. This same best-edge uplink is
-  used as access path to the cloud (plus `cloud_rtt_s` if set).
-TODO - Task size is accepted by the API for compatibility, but **ignored** for uplink;
-  upload time does **not** scale with bits because you directly provide the delay.
-- **Placement persistence (add-only)**: once a service is placed on an edge,
-  it CANNOT be deallocated nor migrated to another host. Placement is monotonic
-  (we only add new services if there is remaining storage capacity). This is a
-  stricter policy than typical OJSTR reconfiguration and is enforced here.
+- No monetary costs and no energy models.
+- Devices have **no local compute**: tasks must run at edge or cloud.
+- **One-to-one binding & persistent task**:
+  each device is bound to **exactly one service** and has **exactly one task**
+  that remains **persistently allocated** on a node (edge/cloud); when the
+  device “recalls” the task, it reuses that allocation.
+  -> API: add_device(service_id=..., uplink_delay_to_edge_ms=...).
+- Cloud execution delay includes:
+    (i) radio uplink delay (best device→edge uplink, **ms**),
+    (ii) **one-way extra network delay** to reach the cloud: `cloud_net_oneway_ms`,
+    (iii) cloud processing time **in ms** = 1000 * (Gcycle / cloud_GHz).
+  The cloud does NOT consume storage/placement resources.
+- Edge compute time IS modeled: edge compute **ms** = 1000 * (Gcycle / edge_GHz).
+- Uplink is a **fixed delay** provided per (device, edge) pair:
+  `uplink_delay_to_edge_ms[edge_id]` in **ms**. The **best** device→edge uplink
+  (min ms) is reused as access path to the cloud (plus `cloud_net_oneway_ms`).
+- **No storage modeling at edges** and **placement is add-only** (never remove/migrate).
+- **Capacity enforcement (no slots)**: at allocation time we enforce
+  ∑ allocated_GHz ≤ node_capacity_GHz and we **saturate** nodes distributing any residual.
 
-
-
-D. Placement (per-edge 0-1 Knapsack)
-------------------------------------
-- Value(service, edge) = estimated number of currently queued tasks (across
-  devices) of that service that COULD meet the deadline at that edge, given
-  the provided uplink delays and the edge CPU speed.
-- Weight = service image size (MB). Capacity = edge storage capacity (MB).
-- We pick the set of services maximizing that estimated feasible demand.
-
-E. Scheduling (Greedy, Min Completion Time)
--------------------------------------------
-- For each device with a head-of-line (HoL) task, enumerate feasible options
-  {local, any edge with the service placed, cloud}. Each option has a total
-  completion time:
-    - local: `cycles/device_cpu`
-    - edge:  `uplink_delay + cycles/edge_cpu`
-    - cloud: `best_uplink_delay + cloud_rtt_s`
-- Pick the option with the MINIMUM completion time while respecting CPU
-  budgets for the current slot. If none is feasible, the task is deferred.
-
-F. Dynamics / Online Operations
--------------------------------
-- `add_service(...)`: dynamically add a new service/application.
-- `add_device(...)`:  dynamically add a new device, providing its
-  `uplink_delay_to_edge_s` mapping.
-- `add_task(device, service, size_bits)`: dynamically enqueue a request
-  (size is currently ignored — delay is directly provided per device-edge).
-
-G. Optional Network Constant
-----------------------------
-- `cloud_rtt_s` (default 0.0): extra network delay when sending to the cloud
-  (e.g., routing/backhaul/round-trip). Set > 0 if you want to penalize cloud.
+C) Output
+---------
+`compute_final_allocation()` (non-mutating) returns:
+- per device: chosen node (edge/cloud), timing breakdown **in ms**, **allocated CPU in GHz**,
+  and **#devices** sharing that node;
+- per node: aggregates (#tasks, #devices, **capacity in GHz**, **allocated sum in GHz**).
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Tuple
+from typing import Dict, List, Any
 import math
-from collections import deque
 
+# (Facoltativi, lasciati per integrazione nel tuo progetto)
+from networking.entities import Link  # noqa: F401
+from resourceallocation.context import Context  # noqa: F401
+from resourceallocation.jnecora import JNecora  # noqa: F401
+from utils.distribution import Distribution  # noqa: F401
+from utils.logging import info, set_logging_level, debug  # noqa: F401
 
 # ===========================
-# Data models (no costs, no energy)
+# Data models (GHz / Gcycle / ms, no device compute)
 # ===========================
+
 
 @dataclass
 class Service:
-    """
-    Service (i.e., 'application') type.
-
-    Attributes
-    ----------
-    id : int
-        Unique service id.
-    name : str
-        Human-readable name.
-    store_size_mb : int
-        Storage footprint if placed on an edge node (knapsack weight).
-    cycles_per_task : float
-        CPU cycles required to execute one task of this service.
-    deadline_s : float
-        Per-task deadline (seconds). Scheduling must meet it per task.
-    """
     id: int
-    name: str
-    store_size_mb: int
-    cycles_per_task: float
-    deadline_s: float
+    cycles_per_invocation_gcyc: float  # Gcycle per invocazione
+    deadline_ms: float  # deadline in ms
 
 
 @dataclass
 class Device:
-    """
-    End device producing tasks.
-
-    Attributes
-    ----------
-    id : int
-        Unique device id.
-    cpu_cycles_per_s : float
-        Local CPU capacity (cycles/second).
-    uplink_delay_to_edge_s : Dict[int, float]
-        Map edge_id -> *fixed uplink delay in seconds* to reach that edge.
-        (Provided by you; replaces any rate-based calculation.)
-    queue : deque
-        FIFO of pending tasks (service_id, size_bits). size_bits accepted
-        for compatibility, but currently unused in time computations.
-    """
     id: int
-    cpu_cycles_per_s: float
-    uplink_delay_to_edge_s: Dict[int, float] = field(default_factory=dict)
-    queue: deque = field(default_factory=deque)
+    service_id: int
+    uplink_delay_to_edge_ms: Dict[int, float] = field(default_factory=dict)  # ms
 
 
 @dataclass
 class EdgeNode:
-    """
-    Edge node (BS/server).
-
-    Attributes
-    ----------
-    id : int
-        Unique edge id.
-    cpu_cycles_per_s : float
-        Edge CPU capacity (cycles/second).
-    storage_capacity_mb : int
-        Storage capacity for service images (knapsack capacity).
-    placed_services : set
-        Set of service ids currently placed (available this slot).
-    """
     id: int
-    cpu_cycles_per_s: float
-    storage_capacity_mb: int
+    cpu_capacity_ghz: float
     placed_services: set = field(default_factory=set)
 
 
 @dataclass
 class Cloud:
-    """
-    Cloud node (compute assumed abundant; only uplink delay + cloud_rtt_s matter).
-    """
-    cpu_cycles_per_s: float = 1e15  # effectively 'infinite' here
-
-
-@dataclass
-class OJSTRParams:
-    """
-    Controller-level parameters (no costs, no energy).
-
-    Attributes
-    ----------
-    slot_duration_s : float
-        Slot duration in seconds (scheduling/allocation window).
-    cloud_rtt_s : float
-        Extra network delay term when offloading to cloud (default 0.0).
-    """
-    slot_duration_s: float = 1.0
-    cloud_rtt_s: float = 0.0
+    cpu_capacity_ghz: float  # PROVIDED BY CALLER (main)
 
 
 # ===========================
-# Core controller (no costs/energy)
+# Core controller (1 device ↔ 1 service, 1 persistent task per device)
 # ===========================
 
-class OJSTRController:
+
+class OJSTR:
     """
-    OJSTR-like online controller (simplified, cost/energy removed; delays provided directly).
-
-    Per slot:
-      1) Service placement (per-edge knapsack) to maximize the number of
-         potentially-feasible tasks that could meet deadlines at that edge.
-      2) Task scheduling + resource allocation picking the option with
-         the smallest completion time (local/edge/cloud) while respecting CPU budgets.
-
-    Dynamics supported:
-      - add_service, add_device, add_task (online arrivals).
+    OJSTR-like controller (simplified; delays provided; no storage; no device compute).
+    All CPU quantities are in GHz; service load is in Gcycle; times are in ms.
     """
 
-    def __init__(self, params: OJSTRParams):
-        self.params = params
+    def __init__(self, cloud_net_oneway_ms: float, cloud_cpu_capacity_ghz: float):
+        self.cloud_net_oneway_ms = cloud_net_oneway_ms
+        self.cloud = Cloud(cpu_capacity_ghz=cloud_cpu_capacity_ghz)
         self.services: Dict[int, Service] = {}
         self.devices: Dict[int, Device] = {}
         self.edges: Dict[int, EdgeNode] = {}
-        self.cloud = Cloud()
 
         # Book-keeping
         self._next_service_id = 0
         self._next_device_id = 0
         self._next_edge_id = 0
 
-        # Last-slot report
-        self.last_slot_log: Dict[str, object] = {}
-
     # ------------- Dynamic registry -------------
 
-    def add_edge(self, cpu_cycles_per_s: float, storage_capacity_mb: int) -> int:
+    def add_edge(self, cpu_capacity_ghz: float) -> int:
+        """
+        Register an edge with capacity in **GHz** (e.g., 3.2).
+        """
         eid = self._next_edge_id
         self._next_edge_id += 1
-        self.edges[eid] = EdgeNode(id=eid, cpu_cycles_per_s=cpu_cycles_per_s, storage_capacity_mb=storage_capacity_mb)
+        self.edges[eid] = EdgeNode(id=eid, cpu_capacity_ghz=cpu_capacity_ghz)
         return eid
 
-    def add_service(self, name: str, store_size_mb: int,
-                    cycles_per_task: float, deadline_s: float) -> int:
+    def add_service(self, cycles_per_invocation_gcyc: float, deadline_ms: float) -> int:
         """
-        Dynamically add a new Service (a.k.a. 'application').
+        Register a service: load in **Gcycle** (e.g., 0.75), deadline in **ms**.
         """
         sid = self._next_service_id
         self._next_service_id += 1
         self.services[sid] = Service(
             id=sid,
-            name=name,
-            store_size_mb=store_size_mb,
-            cycles_per_task=cycles_per_task,
-            deadline_s=deadline_s
+            cycles_per_invocation_gcyc=cycles_per_invocation_gcyc,
+            deadline_ms=deadline_ms,
         )
         return sid
 
-    def add_device(self, cpu_cycles_per_s: float,
-                   uplink_delay_to_edge_s: Dict[int, float]) -> int:
+    def add_device(self, service_id: int, uplink_delay_to_edge_ms: Dict[int, float]) -> int:
         """
-        Dynamically add a new device with its *delays* toward edges (seconds).
-        Example: {edge_id_0: 0.015, edge_id_1: 0.030}
+        Add a device bound to exactly ONE service with ONE persistent task.
+        `uplink_delay_to_edge_ms` values are in **ms** (e.g., {edge0: 20.0}).
         """
+        if service_id not in self.services:
+            raise ValueError(f"Unknown service_id {service_id}")
         did = self._next_device_id
         self._next_device_id += 1
         self.devices[did] = Device(
             id=did,
-            cpu_cycles_per_s=cpu_cycles_per_s,
-            uplink_delay_to_edge_s=dict(uplink_delay_to_edge_s),
+            service_id=service_id,
+            uplink_delay_to_edge_ms=dict(uplink_delay_to_edge_ms),
         )
         return did
 
-    # ----------------- Native online operation -----------------
-
-    def add_task(self, device_id: int, service_id: int, size_bits: int) -> None:
-        """
-        Add a new task request dynamically (device -> service).
-        NOTE: size_bits is currently ignored, since uplink delay is provided directly.
-        """
-        self.devices[device_id].queue.append((service_id, size_bits))
-
     # ===========================
-    # Slot routine
+    # Placement (ADD-ONLY, NO STORAGE)
     # ===========================
 
-    def step(self) -> Dict:
+    def _service_placement_add_only(self) -> None:
         """
-        One time-slot decision:
-          (1) Service placement (per edge), knapsack-like by "feasible demand"
-          (2) Task scheduling + resource allocation (device/self, edge, or cloud)
-        Returns a per-slot report.
+        For each edge, place any service not yet installed if there exists
+        at least one device bound to that service such that the task would
+        meet its deadline on this edge (all times in ms).
+        """
+        for e in self.edges.values():
+            for sid, s in self.services.items():
+                if sid in e.placed_services:
+                    continue
+                feasible = False
+                for d in self.devices.values():
+                    if d.service_id != sid:
+                        continue
+                    delay_to_e_ms = d.uplink_delay_to_edge_ms.get(e.id, math.inf)
+                    if delay_to_e_ms == math.inf:
+                        continue
+                    edge_exec_ms = 1000.0 * (s.cycles_per_invocation_gcyc / e.cpu_capacity_ghz)
+                    if delay_to_e_ms + edge_exec_ms <= s.deadline_ms:
+                        feasible = True
+                        break
+                if feasible:
+                    e.placed_services.add(sid)
+
+    # ===========================
+    # Public: Final allocation snapshot (persistent tasks)
+    # ===========================
+
+    def compute_final_allocation(self) -> Dict[str, Any]:
+        """
+        Final allocation WITH per-node CPU capacity (in GHz) and 1 persistent task per device.
+
+        Steps (all time quantities in **ms**):
+          1) Update placement (add-only).
+          2) For each device, compute per-node CPU MIN required in **GHz** to meet deadline:
+             f_req_ghz = 1000 * load_gcyc / slack_ms, where slack_ms = deadline_ms - net_delay_ms.
+          3) Greedy "hardest-first": assign each device to the node that requires
+             the SMALLEST f_req_ghz among nodes with enough residual capacity.
+          4) On each node, allocate CPU = f_req_ghz + proportional share of residual,
+             so the SUM of allocated GHz == node capacity (if node has ≥1 task).
+          5) Compute final times with allocated GHz (compute_ms = 1000 * load_gcyc / GHz);
+             build per-device and per-node views.
         """
         # 1) Placement
-        self._service_placement_knapsack_all_edges()
+        self._service_placement_add_only()
 
-        # 2) Scheduling + resource allocation (deadline-feasible, min completion time)
-        result_sched = self._schedule_and_allocate()
+        # 2) Build per-device candidates (ms)
+        devices = list(self.devices.values())
+        dev_candidates: Dict[int, List[Dict[str, Any]]] = {}
+        for d in devices:
+            s = self.services[d.service_id]
+            cand = []
 
-        # Prepare report
-        report = {
-            "served_tasks": result_sched["served_tasks"],
-            "dropped_or_deferred": result_sched["dropped_or_deferred"],
-            "edge_cpu_used": result_sched["edge_cpu_used"],
-            "device_cpu_used": result_sched["device_cpu_used"],
-        }
-        self.last_slot_log = report
-        return report
+            # Edge options
+            for e in self.edges.values():
+                if d.service_id not in e.placed_services:
+                    continue
+                delay_up_ms = d.uplink_delay_to_edge_ms.get(e.id, math.inf)
+                slack_ms = s.deadline_ms - delay_up_ms
+                if slack_ms <= 0:
+                    continue
+                # f_req_ghz = cycles / (slack_s) = 1000 * cycles / slack_ms
+                f_req_ghz = 1000.0 * s.cycles_per_invocation_gcyc / slack_ms
+                if f_req_ghz > 0:
+                    cand.append(
+                        {
+                            "node_type": "edge",
+                            "edge_id": e.id,
+                            "f_req_ghz": f_req_ghz,
+                            "comps": {"uplink_ms": delay_up_ms, "cloud_net_oneway_ms": None},
+                        }
+                    )
 
-    # ===========================
-    # (1) Service placement (per-edge knapsack)
-    # ===========================
+            # Cloud option (best uplink + one-way extra + cloud compute), all in ms
+            best_uplink_ms = min(d.uplink_delay_to_edge_ms.values(), default=math.inf)
+            cloud_extra_ms = self.cloud_net_oneway_ms
+            slack_ms = s.deadline_ms - (best_uplink_ms + cloud_extra_ms)
+            if slack_ms > 0:
+                f_req_ghz = 1000.0 * s.cycles_per_invocation_gcyc / slack_ms
+                if f_req_ghz > 0:
+                    cand.append(
+                        {
+                            "node_type": "cloud",
+                            "edge_id": None,
+                            "f_req_ghz": f_req_ghz,
+                            "comps": {"uplink_ms": best_uplink_ms, "cloud_net_oneway_ms": cloud_extra_ms},
+                        }
+                    )
 
-    def _service_placement_knapsack_all_edges(self) -> None:
-        """
-        For each edge, add (if space permits) new services that maximize the
-        estimated number of currently queued tasks that could meet deadlines at that edge.
-        NOTE: Placement is PERSISTENT (add-only): already placed services remain placed
-        and are never removed or migrated.
-        """
-        for e in self.edges.values():
-            # Compute remaining storage capacity (MB) considering already-placed services
-            used_mb = 0
-            for sid in e.placed_services:
-                used_mb += self.services[sid].store_size_mb
-            remaining_mb = max(e.storage_capacity_mb - used_mb, 0)
+            dev_candidates[d.id] = cand
 
-            # Build candidate items ONLY for services NOT yet placed on this edge
-            items: List[Tuple[int, int, float]] = []  # (service_id, weight_MB, value=feasible_count)
-            if remaining_mb > 0:
-                for sid, s in self.services.items():
-                    if sid in e.placed_services:
-                        continue  # already placed -> persistent, skip as candidate
+        # 3) Greedy assignment with capacity (hardest-first on min f_req_ghz)
+        edge_cap: Dict[int, float] = {e.id: e.cpu_capacity_ghz for e in self.edges.values()}
+        cloud_cap: float = self.cloud.cpu_capacity_ghz
 
-                    feasible_count = 0
-                    # Count how many queued tasks (across devices) of this service
-                    # could meet deadline if sent to this edge
-                    for d in self.devices.values():
-                        delay_to_e = d.uplink_delay_to_edge_s.get(e.id, math.inf)
-                        if delay_to_e == math.inf or not d.queue:
-                            continue
-                        for (req_sid, _size_bits) in d.queue:
-                            if req_sid != sid:
-                                continue
-                            edge_exec_time = s.cycles_per_task / e.cpu_cycles_per_s
-                            total_time = delay_to_e + edge_exec_time
-                            if total_time <= s.deadline_s:
-                                feasible_count += 1
-
-                    if feasible_count > 0:
-                        items.append((sid, s.store_size_mb, float(feasible_count)))
-
-            # Solve 0-1 knapsack by DP on the REMAINING capacity
-            chosen = self._knapsack_01_dp(items, remaining_mb)
-
-            # Persistent placement: ADD (do not replace) chosen services
-            for sid in chosen:
-                e.placed_services.add(sid)
-
-
-    @staticmethod
-    def _knapsack_01_dp(items: List[Tuple[int, int, float]], capacity: int) -> List[int]:
-        """
-        Simple 0-1 knapsack: items = (id, weight, value_score), capacity in MB.
-        Returns the set of chosen item ids maximizing total score.
-        """
-        n = len(items)
-        if n == 0 or capacity <= 0:
-            return []
-
-        dp = [0.0] * (capacity + 1)
-        keep = [[False] * (capacity + 1) for _ in range(n)]
-
-        for i, (_id, w, v) in enumerate(items):
-            if w > capacity:
-                continue
-            for c in range(capacity, w - 1, -1):
-                if dp[c - w] + v > dp[c]:
-                    dp[c] = dp[c - w] + v
-                    keep[i][c] = True
-
-        chosen: List[int] = []
-        c = capacity
-        for i in range(n - 1, -1, -1):
-            if keep[i][c]:
-                chosen.append(items[i][0])
-                c -= items[i][1]
-        return chosen
-
-    # ===========================
-    # (2) Scheduling + resource allocation
-    # ===========================
-
-    def _schedule_and_allocate(self) -> Dict:
-        """
-        Greedy matching-style routine:
-        - iterate devices that have a head-of-line (HoL) task;
-        - compute feasible options: local, any edge with service placed, cloud;
-        - pick the option with MINIMUM completion time (total_time),
-          while respecting per-slot CPU budgets at device and edges.
-
-        Returns per-slot accounting.
-        """
-        T = self.params.slot_duration_s
-
-        # Per-node CPU budgets in cycles (for this slot)
-        device_budget = {d.id: d.cpu_cycles_per_s * T for d in self.devices.values()}
-        edge_budget = {e.id: e.cpu_cycles_per_s * T for e in self.edges.values()}
-
-        served_tasks = []
-        dropped_or_deferred = []
-
-        # Build candidates: devices with a HoL task
-        candidates: List[Tuple[int, int, int, float]] = []
-        for d in self.devices.values():
-            if len(d.queue) == 0:
-                continue
-            sid, size_bits = d.queue[0]
-            s = self.services[sid]
-            candidates.append((d.id, sid, size_bits, s.deadline_s))
-
-        # Helper: best feasible completion time for sorting
-        def best_feasible_total_time(dev_id: int, sid: int, size_bits: int) -> float:
-            options = self._enumerate_options(dev_id, sid,
-                                              device_budget, edge_budget)
-            if not options:
+        def min_f_req(dev_id: int) -> float:
+            c = dev_candidates[dev_id]
+            if not c:
                 return math.inf
-            return min(opt["total_time"] for opt in options)
+            return min(opt["f_req_ghz"] for opt in c)
 
-        # Sort by smallest best feasible completion time (if none, goes to the end)
-        candidates.sort(key=lambda t: best_feasible_total_time(t[0], t[1], t[2]))
+        dev_order = sorted([d.id for d in devices], key=min_f_req, reverse=True)
 
-        # Serve in order
-        for dev_id, sid, size_bits, _dl in candidates:
-            options = self._enumerate_options(dev_id, sid,
-                                              device_budget, edge_budget)
-            if not options:
-                dropped_or_deferred.append((dev_id, sid))
+        assign_edge: Dict[int, List[Dict[str, Any]]] = {e.id: [] for e in self.edges.values()}
+        assign_cloud: List[Dict[str, Any]] = []
+        deferred: Dict[int, bool] = {d.id: False for d in devices}
+
+        for dev_id in dev_order:
+            cand = dev_candidates[dev_id]
+            if not cand:
+                deferred[dev_id] = True
                 continue
 
-            # pick the option with minimum completion time
-            choice = min(options, key=lambda o: o["total_time"])
+            placed = False
+            for c in sorted(cand, key=lambda x: x["f_req_ghz"]):
+                if c["node_type"] == "edge":
+                    eid = c["edge_id"]
+                    if edge_cap[eid] >= c["f_req_ghz"]:
+                        edge_cap[eid] -= c["f_req_ghz"]
+                        assign_edge[eid].append({"dev_id": dev_id, "f_req_ghz": c["f_req_ghz"], "comps": c["comps"]})
+                        placed = True
+                        break
+                else:  # cloud
+                    if cloud_cap >= c["f_req_ghz"]:
+                        cloud_cap -= c["f_req_ghz"]
+                        assign_cloud.append({"dev_id": dev_id, "f_req_ghz": c["f_req_ghz"], "comps": c["comps"]})
+                        placed = True
+                        break
+            if not placed:
+                deferred[dev_id] = True
 
-            # consume resources and pop HoL
-            s = self.services[sid]
-            if choice["where"] == "local":
-                device_budget[dev_id] -= s.cycles_per_task
-            elif choice["where"] == "edge":
-                edge_budget[choice["edge_id"]] -= s.cycles_per_task
-            else:  # "cloud"
-                pass  # no CPU budget tracked for cloud
+        # 4) Distribute residual capacity to saturate nodes
+        def finalize_alloc(assigned: List[Dict[str, Any]], total_cap_ghz: float) -> List[Dict[str, Any]]:
+            if not assigned:
+                return []
+            sum_req = sum(x["f_req_ghz"] for x in assigned)
+            residual = max(total_cap_ghz - sum_req, 0.0)
+            if residual > 0 and sum_req > 0:
+                for x in assigned:
+                    x["f_alloc_ghz"] = x["f_req_ghz"] + residual * (x["f_req_ghz"] / sum_req)
+            elif residual > 0 and sum_req == 0:
+                extra = residual / len(assigned)
+                for x in assigned:
+                    x["f_alloc_ghz"] = extra
+            else:
+                for x in assigned:
+                    x["f_alloc_ghz"] = x["f_req_ghz"]
+            # guard: never exceed total capacity (within epsilon)
+            denom = sum(a["f_alloc_ghz"] for a in assigned)
+            if denom > 0 and denom > total_cap_ghz * 1.0000001:
+                scale = total_cap_ghz / denom
+                for x in assigned:
+                    x["f_alloc_ghz"] *= scale
+            return assigned
 
-            self.devices[dev_id].queue.popleft()
-            served_tasks.append((dev_id, sid, choice["where"], choice.get("edge_id")))
+        edge_final: Dict[int, List[Dict[str, Any]]] = {}
+        for e in self.edges.values():
+            edge_final[e.id] = finalize_alloc(assign_edge[e.id], e.cpu_capacity_ghz)
 
-        return {
-            "served_tasks": served_tasks,
-            "dropped_or_deferred": dropped_or_deferred,
-            "edge_cpu_used": {e.id: e.cpu_cycles_per_s * T - edge_budget[e.id] for e in self.edges.values()},
-            "device_cpu_used": {d.id: d.cpu_cycles_per_s * T - device_budget[d.id] for d in self.devices.values()},
+        cloud_final = finalize_alloc(assign_cloud, self.cloud.cpu_capacity_ghz)
+
+        # 5) Build per-device view and node stats (times in ms)
+        devices_on_edge = {e.id: set() for e in self.edges.values()}
+        for eid, lst in edge_final.items():
+            for x in lst:
+                devices_on_edge[eid].add(x["dev_id"])
+        devices_on_cloud = set(x["dev_id"] for x in cloud_final)
+
+        by_device: Dict[int, Dict[str, Any]] = {
+            d.id: {"service_id": d.service_id, "assigned": None, "deferred": deferred[d.id]} for d in self.devices.values()
         }
 
-    def _enumerate_options(self, dev_id: int, service_id: int,
-                           device_budget: Dict[int, float],
-                           edge_budget: Dict[int, float]) -> List[Dict]:
-        """
-        Return all feasible options with completion time for (dev, service, task).
-        Feasibility is checked against per-task deadline and remaining CPU budgets.
-        No costs, no energy; we choose the option with MINIMUM total_time.
-        """
-        d = self.devices[dev_id]
-        s = self.services[service_id]
-        cloud_rtt = self.params.cloud_rtt_s
+        # Edge entries
+        for eid, lst in edge_final.items():
+            e = self.edges[eid]
+            for x in lst:
+                d = self.devices[x["dev_id"]]
+                s = self.services[d.service_id]
+                uplink_ms = x["comps"]["uplink_ms"]
+                edge_compute_ms = 1000.0 * s.cycles_per_invocation_gcyc / x["f_alloc_ghz"] if x["f_alloc_ghz"] > 0 else math.inf
+                total_ms = uplink_ms + edge_compute_ms
+                by_device[x["dev_id"]]["assigned"] = {
+                    "where": "edge",
+                    "edge_id": eid,
+                    "total_time_ms": total_ms,
+                    "components": {
+                        "uplink_ms": uplink_ms,
+                        "edge_compute_ms": edge_compute_ms,
+                        "cloud_net_oneway_ms": None,
+                        "cloud_compute_ms": None,
+                    },
+                    "cpu_share_ghz": x["f_alloc_ghz"],
+                    "num_devices_on_chosen_node": len(devices_on_edge[eid]),
+                }
+                by_device[x["dev_id"]]["deferred"] = False
 
-        options: List[Dict] = []
+        # Cloud entries
+        for x in cloud_final:
+            d = self.devices[x["dev_id"]]
+            s = self.services[d.service_id]
+            uplink_ms = x["comps"]["uplink_ms"]
+            cloud_oneway_ms = x["comps"]["cloud_net_oneway_ms"]
+            cloud_compute_ms = 1000.0 * s.cycles_per_invocation_gcyc / x["f_alloc_ghz"] if x["f_alloc_ghz"] > 0 else math.inf
+            total_ms = uplink_ms + cloud_oneway_ms + cloud_compute_ms
+            by_device[x["dev_id"]]["assigned"] = {
+                "where": "cloud",
+                "edge_id": None,
+                "total_time_ms": total_ms,
+                "components": {
+                    "uplink_ms": uplink_ms,
+                    "edge_compute_ms": None,
+                    "cloud_net_oneway_ms": cloud_oneway_ms,
+                    "cloud_compute_ms": cloud_compute_ms,
+                },
+                "cpu_share_ghz": x["f_alloc_ghz"],
+                "num_devices_on_chosen_node": len(devices_on_cloud),
+            }
+            by_device[x["dev_id"]]["deferred"] = False
 
-        # --- Local execution ---
-        local_exec_time = s.cycles_per_task / d.cpu_cycles_per_s
-        if local_exec_time <= s.deadline_s and device_budget[dev_id] >= s.cycles_per_task:
-            options.append({"where": "local", "total_time": local_exec_time})
+        node_stats = {
+            "edges": {
+                e.id: {
+                    "num_tasks": len(edge_final[e.id]),
+                    "num_devices": len(devices_on_edge[e.id]),
+                    "cpu_capacity_ghz": e.cpu_capacity_ghz,
+                    "cpu_allocated_ghz": sum(it["f_alloc_ghz"] for it in edge_final[e.id]) if edge_final[e.id] else 0.0,
+                }
+                for e in self.edges.values()
+            },
+            "cloud": {
+                "num_tasks": len(cloud_final),
+                "num_devices": len(devices_on_cloud),
+                "cpu_capacity_ghz": self.cloud.cpu_capacity_ghz,
+                "cpu_allocated_ghz": sum(it["f_alloc_ghz"] for it in cloud_final) if cloud_final else 0.0,
+            },
+        }
 
-        # --- Edge execution (any edge with the service placed) ---
-        for e in self.edges.values():
-            if service_id not in e.placed_services:
+        return {"by_device": by_device, "node_stats": node_stats}
+
+
+class OJSTRWrapper:
+    def __init__(self, context: Context):
+        self.context = context
+
+        # --- Extract parameters from context
+        # Extract cloud parameters
+        cloud_net_oneway_ms = Link("CL", context.topology_graph["GW"]["CN"]["desc"]).delay_distribution.pdf.mean_value()
+        debug(f"Using cloud one-way network delay = {cloud_net_oneway_ms} ms ")
+        cloud_cpu_capacity_ghz = context.hosts["CN"].cpu_ghz
+        debug(f"Using cloud CPU capacity = {cloud_cpu_capacity_ghz} GHz ")
+
+        # Initialize OJSTR controller
+        self.ojstr = OJSTR(cloud_net_oneway_ms, cloud_cpu_capacity_ghz)
+
+        # Register edges
+        self.host_to_id_map = {}
+        for host_label, host in context.hosts.items():
+            if host_label == "CN":
                 continue
-            delay_to_e = d.uplink_delay_to_edge_s.get(e.id, math.inf)
-            if delay_to_e == math.inf:
-                continue
+            edge_id = self.ojstr.add_edge(cpu_capacity_ghz=host.cpu_ghz)
+            self.host_to_id_map[host_label] = edge_id
+            debug(f"Registered edge {edge_id} with capacity {host.cpu_ghz} GHz")
+        debug(f"Host to edge ID map: {self.host_to_id_map}")
 
-            edge_exec_time = s.cycles_per_task / e.cpu_cycles_per_s
-            total_time = delay_to_e + edge_exec_time
-            if total_time <= s.deadline_s and edge_budget[e.id] >= s.cycles_per_task:
-                options.append({"where": "edge", "edge_id": e.id, "total_time": total_time})
+        # register services
+        self.service_to_id_map = {}
+        for process_name, process in context.processes.items():
+            deadline_ms = process.max_delay_ms
 
-        # --- Cloud execution ---
-        # Use best available (device->edge) uplink delay as access path to the cloud.
-        best_uplink = min(d.uplink_delay_to_edge_s.values(), default=math.inf)
-        cloud_time = best_uplink + cloud_rtt
-        if cloud_time <= s.deadline_s:
-            options.append({"where": "cloud", "total_time": cloud_time})
+            # computing average # cycles per invocation (Gcycle)
+            cycles_per_invocation_gcyc = process.application.benchmark.distribution.pdf.mean_value() * process.application.benchmark.cpu_ghz
+            service_id = self.ojstr.add_service(cycles_per_invocation_gcyc=cycles_per_invocation_gcyc, deadline_ms=deadline_ms)
+            self.service_to_id_map[process_name] = service_id
+            debug(
+                f"Added service {process_name} with {cycles_per_invocation_gcyc} average cycles per invocation and max latency {deadline_ms} ms"
+            )
 
-        return options
+        # compute average communication links
+        self.links = {}
+        for process_name, process in context.processes.items():
+            self.links[process_name] = {}
+            for host_label, host in context.hosts.items():
+                if host_label == "CN":
+                    continue
+                self.links[process_name][self.host_to_id_map[host_label]] = float(
+                    self.context.links["gamma_com"][(process.name, host.label)].mean_value()
+                )
+        debug(f"Computed uplink delays (ms): {self.links}")
+
+    def add_1_mn(self, process_name: str):
+        self.ojstr.add_device(service_id=self.service_to_id_map[process_name], uplink_delay_to_edge_ms=self.links[process_name])
+
+    def compute_final_allocation(self) -> Dict[str, Any]:
+        return self.ojstr.compute_final_allocation()
 
 
 # ===========================
-# Minimal usage example (delays-based)
+# Minimal usage example (GHz/Gcycle; persistent 1 task per device)
 # ===========================
 if __name__ == "__main__":
-    params = OJSTRParams(slot_duration_s=1.0, cloud_rtt_s=0.02)  # e.g., 20 ms extra when using cloud
-    ctrl = OJSTRController(params)
+    set_logging_level("DEBUG")
+    context = JNecora.load_context_from_file("configs/scenario1_het1.json", cpu_shares_descriptor={"fair_shares": "num_processes"})
+    ojstr = OJSTRWrapper(context)
+    ojstr.add_1_mn("P0")
 
-    # Edges
-    e0 = ctrl.add_edge(cpu_cycles_per_s=5e9, storage_capacity_mb=200)
-    e1 = ctrl.add_edge(cpu_cycles_per_s=3e9, storage_capacity_mb=150)
+    plan = ojstr.compute_final_allocation()
 
-    # Services (no costs, no energy)
-    sA = ctrl.add_service(name="VideoAnalytics", store_size_mb=60,
-                          cycles_per_task=1.0e9, deadline_s=0.8)
-    sB = ctrl.add_service(name="AnomalyDetect", store_size_mb=40,
-                          cycles_per_task=4.0e8, deadline_s=0.5)
+    info(plan)
+    exit()
 
-    # Devices (provide *delays* in seconds to each edge)
-    d0 = ctrl.add_device(cpu_cycles_per_s=2e9,
-                         uplink_delay_to_edge_s={e0: 0.02, e1: 0.05})
-    d1 = ctrl.add_device(cpu_cycles_per_s=1e9,
-                         uplink_delay_to_edge_s={e0: 0.04, e1: 0.03})
+    # # Cloud: 500 GHz, 20 ms one-way extra to reach cloud
+    # ctrl = OJSTR(cloud_net_oneway_ms=20.0, cloud_cpu_capacity_ghz=500.0)
 
-    # Dynamic arrivals (size_bits ignored here)
-    ctrl.add_task(d0, sA, size_bits=8_000_000)
-    ctrl.add_task(d0, sB, size_bits=4_000_000)
-    ctrl.add_task(d1, sA, size_bits=8_000_000)
+    # # Edges (GHz)
+    # e0 = ctrl.add_edge(cpu_capacity_ghz=5.0)  # 5 GHz
+    # e1 = ctrl.add_edge(cpu_capacity_ghz=3.0)  # 3 GHz
 
-    # Run a few slots
-    for t in range(3):
-        rep = ctrl.step()
-        print(f"[slot {t}] report:", rep)
+    # # Services (Gcycle per invocation, deadline in **ms**)
+    # sA = ctrl.add_service(cycles_per_invocation_gcyc=1.0, deadline_ms=800.0)  # 1 Gcycle, 800 ms
+    # sB = ctrl.add_service(cycles_per_invocation_gcyc=0.4, deadline_ms=500.0)  # 0.4 Gcycle, 500 ms
+
+    # # Devices: uplink delays in **ms**
+    # d0 = ctrl.add_device(service_id=sA, uplink_delay_to_edge_ms={e0: 20.0, e1: 50.0})
+    # d1 = ctrl.add_device(service_id=sB, uplink_delay_to_edge_ms={e0: 40.0, e1: 30.0})
+
+    # # --- Final allocation snapshot (persistent plan; devices reuse it over time) ---
+    # plan = ctrl.compute_final_allocation()
+    # # Print using your logger
+    # from utils.logging import print
+
+    # print(plan)
