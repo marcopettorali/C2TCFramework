@@ -35,7 +35,7 @@ def run_experiments():
 
     # DJ-NECORA EXPERIMENTS
     focus(f"Starting DJNecora experiments for scenario {SCENARIO} with {NUM_REPETITIONS} repetitions")
-    context = DJNecora.load_context_from_file(f"configs/{SCENARIO}.json", _cpu_shares=[1 / i for i in range(1, 8 + 1)])
+    context = DJNecora.load_context_from_file(f"configs/{SCENARIO}.json", cpu_shares=[1 / i for i in range(1, 8 + 1)])
 
     results = {sp: {cp: [] for cp in selection_policies} for sp in splitting_policies}
 

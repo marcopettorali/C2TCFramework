@@ -65,7 +65,7 @@ def run_experiments():
 
         # set grain compatible with the results in DJ-NECORA conference paper
         context = DJNecora.load_context_from_file(
-            f"configs/{SCENARIO}.json", _cpu_shares={"cpu_share_precision": 0.01, "cpu_share_round_precision": 2}
+            f"configs/{SCENARIO}.json", cpu_shares={"cpu_share_precision": 0.01, "cpu_share_round_precision": 2}
         )
 
         # compute the number of MNs that will be allocated with this initial fraction

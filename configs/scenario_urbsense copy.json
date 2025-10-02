@@ -1,4 +1,16 @@
-{  
+{
+    "solution": [
+    ('A0', 'AP0', 0.3333333333333333, 1),
+    ('A1', 'AP0', 0.3333333333333333, 1),
+    ('A2', 'AP0', 0.3333333333333333, 1),
+    ('A3', 'AP1', 0.5, 1),
+    ('A4', 'AP1', 0.5, 1),
+    ('A5', 'AP2', 1.0, 3),
+    ('A6', 'AP3', 1.0, 3),
+    ('A7', 'CN', 1.0, 15)
+]
+
+    
     "environment": "environments/env1_urbsense.json",
     "deployment": "deployments/env1_urbsense.json",
 

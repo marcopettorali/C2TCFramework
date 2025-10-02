@@ -112,7 +112,7 @@ if __name__ == "__main__":
     cpu_share = 2.4 / host.cpu_ghz
 
     gamma_exe = (
-        process.application.benchmark.distribution.pdf * ((process.application.benchmark.cpu_ghz / host.cpu_ghz) * (1 / cpu_share))
+        process.application.benchmark.distribution.pdf * ((process.application.benchmark.reference_cpu_ghz / host.cpu_ghz) * (1 / cpu_share))
     ).normalize()
 
     for mns in range(1, 13 + 1):

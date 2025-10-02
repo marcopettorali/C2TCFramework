@@ -221,6 +221,15 @@ def _worker(process: Process, host: Host, nmns, context: Context):
         elif "cpu_share_precision" in _CPU_SHARES:
             step_share = _CPU_SHARES["cpu_share_precision"]
             cpu_shares = list(np.arange(0, 1.0 + step_share, step_share))[1:]  # exclude 0
+        elif "shares_list" in _CPU_SHARES:
+            cpu_shares = _CPU_SHARES["cpu_shares_list"]
+        elif "fair_shares" in _CPU_SHARES:
+            number_shares = (
+                _CPU_SHARES["fair_shares"]
+                if isinstance(_CPU_SHARES["fair_shares"], int)
+                else len(context.processes.keys()) if _CPU_SHARES["fair_shares"] == "num_processes" else None
+            )
+            cpu_shares = [1 / i for i in range(1, number_shares + 1)]
         else:
             raise ValueError(f"Invalid _CPU_SHARES dict: {_CPU_SHARES}")
         cpu_shares = [float(x) for x in cpu_shares if x <= 1.0]
@@ -231,7 +240,7 @@ def _worker(process: Process, host: Host, nmns, context: Context):
         cpu_shares = sorted(cpu_shares, reverse=True)
     else:
         raise ValueError(f"Invalid _CPU_SHARES type: {type(_CPU_SHARES)}")
-    
+
     for share in cpu_shares:
         if to_break:
             # ASSUMPTION: we don't care when the host can no longer tolerate the app.
@@ -323,9 +332,9 @@ class JNecora:
     @staticmethod
     def load_context_from_file(
         config_path: str,
+        cpu_shares_descriptor: dict,
         pickle_context: bool = True,
         pickle_folder_relative_path: str = "pickles/jnecora",
-        _cpu_shares=None,
     ):
         """
         Loads the simulation context from a configuration file.
@@ -339,11 +348,19 @@ class JNecora:
         """
         info(f"**Importing context** from file {config_path}")
 
+        assert isinstance(
+            cpu_shares_descriptor, dict
+        ), f"cpu_shares_descriptor must be a dict, is {type(cpu_shares_descriptor)}: {cpu_shares_descriptor}"
+
         # convert the config_path to a Path object
         config_path = Path(config_path)
 
         # check if in the parent folder there is a pickles folder and inside a pickle file with the same name as the config file
-        pickle_path = config_path.parent / pickle_folder_relative_path / f"{config_path.stem}.pkl"
+        pickle_name = (
+            f"scenario=({config_path.stem})_cpusharesdescriptor=({",".join([f"{k}={v}" for k, v in cpu_shares_descriptor.items()])}).pkl"
+        )
+        pickle_path = config_path.parent / pickle_folder_relative_path / pickle_name
+
         if pickle_path.exists():
             # print the date of last modification of the pickle file
             last_modified_time = datetime.fromtimestamp(pickle_path.stat().st_mtime)
@@ -377,9 +394,8 @@ class JNecora:
 
         # compute the gamma_proc for each process, host and cpu_share
         info("Precomputing **gamma_tot** for each process, host and cpu_share")
-        if _cpu_shares is None:
-            _cpu_shares = [1 / i for i in range(1, len(context.processes.keys()) + 1)]
-        context = _compute_gamma_tot_for_each_process_host_cpu_share(context, _cpu_shares)
+
+        context = _compute_gamma_tot_for_each_process_host_cpu_share(context, cpu_shares_descriptor)
 
         # if pickle_context is True, pickle the context
         if pickle_context:
@@ -629,9 +645,8 @@ class JNecora:
             raise ValueError(f"Method {method} is not supported. Supported methods are 'exhaustive' and 'ga'")
 
         return best_solution, best_value
-    
 
-    def compute_max_mns_min_cpushare_for_allocation(self,allocation):
+    def compute_max_mns_min_cpushare_for_allocation(self, allocation):
         new_solution = []
         for all in allocation:
             process_name, host_label = all
@@ -657,6 +672,7 @@ class JNecora:
             new_solution.append((process_name, host_label, cpu_share, valid_nms))
 
         return new_solution
+
 
 if __name__ == "__main__":
     import itertools

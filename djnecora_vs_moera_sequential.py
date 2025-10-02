@@ -13,7 +13,7 @@ LOAD_MNS_LIST_FROM_FILE = "out/djnecora_initialfraction_scenario1_het1.json"  # 
 
 # set coarse grain
 context = DJNecora.load_context_from_file(
-    f"configs/{SCENARIO}.json", _cpu_shares={"cpu_share_precision": 0.01, "cpu_share_round_precision": 2}
+    f"configs/{SCENARIO}.json", cpu_shares={"cpu_share_precision": 0.01, "cpu_share_round_precision": 2}
 )
 
 results_file = f"out/djnecora_vs_moera_{SCENARIO}.json"

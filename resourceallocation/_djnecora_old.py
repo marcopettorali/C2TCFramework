@@ -40,9 +40,9 @@ class DJNecora(JNecora):
         config_path: str,
         pickle_context: bool = True,
         pickle_folder_relative_path: str = "pickles/djnecora",
-        _cpu_shares=list([float(x) for x in np.linspace(0, 1, 51)][1:]),
+        cpu_shares=list([float(x) for x in np.linspace(0, 1, 51)][1:]),
     ):
-        return JNecora.load_context_from_file(config_path, pickle_context, pickle_folder_relative_path, _cpu_shares=_cpu_shares)
+        return JNecora.load_context_from_file(config_path, pickle_context, pickle_folder_relative_path, cpu_shares_descriptor=cpu_shares)
 
     def initialize_hosts(self):
         if self.context is None:

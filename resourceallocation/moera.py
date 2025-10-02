@@ -211,8 +211,8 @@ class MOERA:
 
 
 if __name__ == "__main__":
-    moera = MOERA("configs/scenario1.json")
-    # print(moera.context.links["gamma_com"])
+    moera = MOERA()
+    moera.set_context("configs/scenario1.json")
     moera.add_1_mn("P0")
     moera.add_1_mn("P0")
     moera.add_1_mn("P1")
