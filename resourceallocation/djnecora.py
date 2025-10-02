@@ -44,7 +44,7 @@ class DJNecora(JNecora):
         # cpu_shares=list([float(x) for x in np.linspace(0, 1, 51)][1:]),
         cpu_shares={"cpu_ghz_precision": 0.01},  # 10 MHz precision
     ):
-        return JNecora.load_context_from_file(config_path, pickle_context, pickle_folder_relative_path, cpu_shares_descriptor=cpu_shares)
+        return JNecora.load_context_from_file(config_path, cpu_shares, pickle_context, pickle_folder_relative_path)
 
     def initialize_hosts(self):
         if self.context is None:

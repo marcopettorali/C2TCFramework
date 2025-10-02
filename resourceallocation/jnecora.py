@@ -421,6 +421,37 @@ class JNecora:
         """
         self.set_context(JNecora.load_context_from_file(config_path, pickle_context))
 
+    def max_mns_per_process(self, allocation):
+        """
+        Computes the maximum number of MNs that can be allocated to each process in the given allocation.
+        Args:
+            allocation (list): A list of tuples where each tuple contains a process name and a host
+                                label indicating where the process is allocated.
+        Returns:
+            dict: A dictionary mapping each process name to the maximum number of MNs that can be
+                  allocated to it while satisfying its QoS requirements.
+        """
+        # compute how many MNs can be allocated to each process
+        ret = {}
+        for process_name, host_label in allocation:
+            if self.context.hosts[host_label].infinite_parallelism:
+                cpu_share = 1
+            else:
+                cpu_share = 1 / (sum([1 for elem in allocation if elem[1] == host_label]))
+
+            max_delay_ms = self.context.processes[process_name].max_delay_ms
+            valid_nms = 0
+            for nmns in range(1, MAX_MNS_PER_PROCESS + 1):
+                gamma_tot = self.context.links["gamma_tot_precomputed"][(process_name, host_label, cpu_share, nmns)]
+                if gamma_tot <= max_delay_ms:
+                    valid_nms = nmns
+                else:
+                    break
+
+            ret[process_name] = valid_nms
+
+        return ret
+
     def _max_deltadelay_objective(self, solution):
         """
         Computes the objective function for maximizing delta delay.
@@ -455,26 +486,7 @@ class JNecora:
         Returns:
             float: The computed objective value.
         """
-        # compute how many MNs can be allocated to each process
-        sum_mns = 0
-        for process_name, host_label in solution:
-            if self.context.hosts[host_label].infinite_parallelism:
-                cpu_share = 1
-            else:
-                cpu_share = 1 / (sum([1 for elem in solution if elem[1] == host_label]))
-
-            max_delay_ms = self.context.processes[process_name].max_delay_ms
-            valid_nms = 0
-            for nmns in range(1, MAX_MNS_PER_PROCESS + 1):
-                gamma_tot = self.context.links["gamma_tot_precomputed"][(process_name, host_label, cpu_share, nmns)]
-                if gamma_tot <= max_delay_ms:
-                    valid_nms = nmns
-                else:
-                    break
-
-            sum_mns += valid_nms
-
-        return sum_mns
+        return sum(self.max_mns_per_process(solution).values())
 
     def allocate_all_processes_optimal(self, objective="max_mns"):
         """

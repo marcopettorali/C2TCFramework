@@ -229,24 +229,37 @@ class OJSTR:
         Final allocation WITH per-node CPU capacity (in GHz) and 1 persistent task per device.
 
         Steps (all time quantities in **ms**):
-          1) Update placement (add-only).
-          2) For each device, compute per-node CPU MIN required in **GHz** to meet deadline:
-             f_req_ghz = 1000 * load_gcyc / slack_ms, where slack_ms = deadline_ms - net_delay_ms.
-          3) Greedy "hardest-first": assign each device to the node that requires
-             the SMALLEST f_req_ghz among nodes with enough residual capacity.
-          4) On each node, allocate CPU = f_req_ghz + proportional share of residual,
-             so the SUM of allocated GHz == node capacity (if node has ≥1 task).
-          5) Compute final times with allocated GHz (compute_ms = 1000 * load_gcyc / GHz);
-             build per-device and per-node views.
+        1) Update placement (add-only).
+        2) For each device, compute per-node CPU MIN required in **GHz** to meet deadline:
+            f_req_ghz = 1000 * load_gcyc / slack_ms, where slack_ms = deadline_ms - net_delay_ms.
+        3) Greedy "hardest-first": assign each device to the node that requires
+            the SMALLEST f_req_ghz among nodes with enough residual capacity.
+        4) On each node, allocate CPU = f_req_ghz + proportional share of residual,
+            so the SUM of allocated GHz == node capacity (if node has ≥1 task).
+        5) Compute final times with allocated GHz (compute_ms = 1000 * load_gcyc / GHz);
+            build per-device and per-node views.
+
+        Ritorna nel formato richiesto:
+            {
+            "BR0": [ { "process_name": "P3", "num_mns": 13, "cpu_share": 0.79 }, ... ],
+            "BR1": [ ... ],
+            ...
+            "CN":  [ ... ]
+            }
         """
         # 1) Placement
         self._service_placement_add_only()
 
-        # 2) Build per-device candidates (ms)
+        debug("\n== ALLOCATION (GHz/ms) ==")
+
+        # 2) Build per-device candidates (ms) + debug
         devices = list(self.devices.values())
         dev_candidates: Dict[int, List[Dict[str, Any]]] = {}
+
         for d in devices:
             s = self.services[d.service_id]
+            header = f"[dev {d.id} → service {s.id}] deadline={s.deadline_ms:.1f} ms"
+            debug(header)
             cand = []
 
             # Edge options
@@ -255,35 +268,57 @@ class OJSTR:
                     continue
                 delay_up_ms = d.uplink_delay_to_edge_ms.get(e.id, math.inf)
                 slack_ms = s.deadline_ms - delay_up_ms
-                if slack_ms <= 0:
+                if math.isinf(delay_up_ms):
+                    debug(f"  - edge {e.id}: no uplink → skip")
                     continue
-                # f_req_ghz = cycles / (slack_s) = 1000 * cycles / slack_ms
+                if slack_ms <= 0:
+                    debug(f"  - edge {e.id}: uplink={delay_up_ms:.1f} ms → slack={slack_ms:.1f} ms ≤ 0 → infeasible")
+                    continue
                 f_req_ghz = 1000.0 * s.cycles_per_invocation_gcyc / slack_ms
                 if f_req_ghz > 0:
-                    cand.append(
-                        {
-                            "node_type": "edge",
-                            "edge_id": e.id,
-                            "f_req_ghz": f_req_ghz,
-                            "comps": {"uplink_ms": delay_up_ms, "cloud_net_oneway_ms": None},
+                    cand.append({
+                        "node_type": "edge",
+                        "edge_id": e.id,
+                        "f_req_ghz": f_req_ghz,
+                        "comps": {
+                            "uplink_ms": delay_up_ms,
+                            "cloud_net_oneway_ms": None,
+                            "slack_ms": slack_ms
                         }
-                    )
+                    })
+                    debug(f"  + edge {e.id}: uplink={delay_up_ms:.1f} ms, slack={slack_ms:.1f} ms → f_req={f_req_ghz:.3f} GHz")
 
-            # Cloud option (best uplink + one-way extra + cloud compute), all in ms
-            best_uplink_ms = min(d.uplink_delay_to_edge_ms.values(), default=math.inf)
+            # Cloud option (best uplink + one-way extra), all in ms
+            if d.uplink_delay_to_edge_ms:
+                best_uplink_ms = min(d.uplink_delay_to_edge_ms.values())
+            else:
+                best_uplink_ms = math.inf
             cloud_extra_ms = self.cloud_net_oneway_ms
             slack_ms = s.deadline_ms - (best_uplink_ms + cloud_extra_ms)
-            if slack_ms > 0:
+
+            if math.isinf(best_uplink_ms):
+                debug("  - cloud: no uplink path (no edges reachable) → skip")
+            elif slack_ms <= 0:
+                debug(f"  - cloud: uplink={best_uplink_ms:.1f} ms + extra={cloud_extra_ms:.1f} ms "
+                    f"→ slack={slack_ms:.1f} ms ≤ 0 → infeasible")
+            else:
                 f_req_ghz = 1000.0 * s.cycles_per_invocation_gcyc / slack_ms
                 if f_req_ghz > 0:
-                    cand.append(
-                        {
-                            "node_type": "cloud",
-                            "edge_id": None,
-                            "f_req_ghz": f_req_ghz,
-                            "comps": {"uplink_ms": best_uplink_ms, "cloud_net_oneway_ms": cloud_extra_ms},
+                    cand.append({
+                        "node_type": "cloud",
+                        "edge_id": None,
+                        "f_req_ghz": f_req_ghz,
+                        "comps": {
+                            "uplink_ms": best_uplink_ms,
+                            "cloud_net_oneway_ms": cloud_extra_ms,
+                            "slack_ms": slack_ms
                         }
-                    )
+                    })
+                    debug(f"  + cloud: uplink={best_uplink_ms:.1f} ms + extra={cloud_extra_ms:.1f} ms, "
+                        f"slack={slack_ms:.1f} ms → f_req={f_req_ghz:.3f} GHz")
+
+            if not cand:
+                debug("  ✗ no feasible node (no candidates)")
 
             dev_candidates[d.id] = cand
 
@@ -291,13 +326,20 @@ class OJSTR:
         edge_cap: Dict[int, float] = {e.id: e.cpu_capacity_ghz for e in self.edges.values()}
         cloud_cap: float = self.cloud.cpu_capacity_ghz
 
+        # Capacità iniziali
+        cap_msg = [f"edge {eid}={cap:.3f} GHz" for eid, cap in edge_cap.items()]
+        cap_msg.append(f"cloud={cloud_cap:.3f} GHz")
+        debug("Initial capacities: " + ", ".join(cap_msg))
+
         def min_f_req(dev_id: int) -> float:
             c = dev_candidates[dev_id]
             if not c:
                 return math.inf
             return min(opt["f_req_ghz"] for opt in c)
 
-        dev_order = sorted([d.id for d in devices], key=min_f_req, reverse=True)
+        dev_order = [d.id for d in self.devices.values()]
+        debug("Assignment order (hardest-first by min f_req): " +
+            ", ".join([f"dev {i} (min={min_f_req(i):.3f} GHz)" for i in dev_order]))
 
         assign_edge: Dict[int, List[Dict[str, Any]]] = {e.id: [] for e in self.edges.values()}
         assign_cloud: List[Dict[str, Any]] = []
@@ -307,32 +349,59 @@ class OJSTR:
             cand = dev_candidates[dev_id]
             if not cand:
                 deferred[dev_id] = True
+                debug(f"  → dev {dev_id}: deferred (no candidates)")
                 continue
 
+            sorted_cand = sorted(cand, key=lambda x: x["f_req_ghz"])
+            debug("  → dev {d}: trying nodes by f_req: {lst}".format(
+                d=dev_id,
+                lst=", ".join([
+                    (f"edge {c['edge_id']}" if c["node_type"] == "edge" else "cloud") +
+                    f" [{c['f_req_ghz']:.3f} GHz]"
+                    for c in sorted_cand
+                ])
+            ))
+
             placed = False
-            for c in sorted(cand, key=lambda x: x["f_req_ghz"]):
+            for c in sorted_cand:
+                req = c["f_req_ghz"]
                 if c["node_type"] == "edge":
                     eid = c["edge_id"]
-                    if edge_cap[eid] >= c["f_req_ghz"]:
-                        edge_cap[eid] -= c["f_req_ghz"]
-                        assign_edge[eid].append({"dev_id": dev_id, "f_req_ghz": c["f_req_ghz"], "comps": c["comps"]})
+                    if edge_cap[eid] >= req:
+                        edge_cap[eid] -= req
+                        assign_edge[eid].append({"dev_id": dev_id, "f_req_ghz": req, "comps": c["comps"]})
+                        debug(f"    ✓ dev {dev_id} → EDGE {eid}: f_req={req:.3f} GHz "
+                            f"(residual edge {eid}={edge_cap[eid]:.3f} GHz)")
                         placed = True
                         break
+                    else:
+                        debug(f"    · edge {eid} lacks capacity: need {req:.3f} GHz, have {edge_cap[eid]:.3f} GHz")
                 else:  # cloud
-                    if cloud_cap >= c["f_req_ghz"]:
-                        cloud_cap -= c["f_req_ghz"]
-                        assign_cloud.append({"dev_id": dev_id, "f_req_ghz": c["f_req_ghz"], "comps": c["comps"]})
+                    if cloud_cap >= req:
+                        cloud_cap -= req
+                        assign_cloud.append({"dev_id": dev_id, "f_req_ghz": req, "comps": c["comps"]})
+                        debug(f"    ✓ dev {dev_id} → CLOUD: f_req={req:.3f} GHz "
+                            f"(residual cloud={cloud_cap:.3f} GHz)")
                         placed = True
                         break
+                    else:
+                        debug(f"    · cloud lacks capacity: need {req:.3f} GHz, have {cloud_cap:.3f} GHz")
+
             if not placed:
                 deferred[dev_id] = True
+                best_req = min(c["f_req_ghz"] for c in sorted_cand)
+                max_edge = max(edge_cap.values()) if edge_cap else 0.0
+                debug(f"  ✗ dev {dev_id}: deferred — min required {best_req:.3f} GHz, "
+                    f"max residual edge={max_edge:.3f} GHz, cloud={cloud_cap:.3f} GHz")
 
-        # 4) Distribute residual capacity to saturate nodes
-        def finalize_alloc(assigned: List[Dict[str, Any]], total_cap_ghz: float) -> List[Dict[str, Any]]:
+        # 4) Distribute residual capacity to saturate nodes (con debug)
+        def finalize_alloc(assigned: List[Dict[str, Any]], total_cap_ghz: float, node_label: str) -> List[Dict[str, Any]]:
             if not assigned:
+                debug(f"[{node_label}] empty set → nothing to allocate")
                 return []
             sum_req = sum(x["f_req_ghz"] for x in assigned)
             residual = max(total_cap_ghz - sum_req, 0.0)
+            debug(f"[{node_label}] capacity={total_cap_ghz:.3f} GHz, sum_req={sum_req:.3f} GHz, residual={residual:.3f} GHz")
             if residual > 0 and sum_req > 0:
                 for x in assigned:
                     x["f_alloc_ghz"] = x["f_req_ghz"] + residual * (x["f_req_ghz"] / sum_req)
@@ -343,97 +412,84 @@ class OJSTR:
             else:
                 for x in assigned:
                     x["f_alloc_ghz"] = x["f_req_ghz"]
+
             # guard: never exceed total capacity (within epsilon)
             denom = sum(a["f_alloc_ghz"] for a in assigned)
             if denom > 0 and denom > total_cap_ghz * 1.0000001:
                 scale = total_cap_ghz / denom
                 for x in assigned:
                     x["f_alloc_ghz"] *= scale
+                denom = sum(a["f_alloc_ghz"] for a in assigned)
+
+            # Dettaglio allocazioni
+            for x in assigned:
+                debug(f"  · {node_label}: dev {x['dev_id']} f_req={x['f_req_ghz']:.3f} → f_alloc={x['f_alloc_ghz']:.3f} GHz")
+            debug(f"[{node_label}] final sum_alloc={denom:.3f} GHz\n")
             return assigned
 
         edge_final: Dict[int, List[Dict[str, Any]]] = {}
         for e in self.edges.values():
-            edge_final[e.id] = finalize_alloc(assign_edge[e.id], e.cpu_capacity_ghz)
+            edge_final[e.id] = finalize_alloc(assign_edge[e.id], e.cpu_capacity_ghz, f"edge {e.id}")
 
-        cloud_final = finalize_alloc(assign_cloud, self.cloud.cpu_capacity_ghz)
+        cloud_final = finalize_alloc(assign_cloud, self.cloud.cpu_capacity_ghz, "cloud")
 
-        # 5) Build per-device view and node stats (times in ms)
-        devices_on_edge = {e.id: set() for e in self.edges.values()}
-        for eid, lst in edge_final.items():
-            for x in lst:
-                devices_on_edge[eid].add(x["dev_id"])
-        devices_on_cloud = set(x["dev_id"] for x in cloud_final)
+        # --------- COSTRUZIONE OUTPUT RICHIESTO (per nodo, aggregato per servizio) ---------
+        result: Dict[str, List[Dict[str, Any]]] = {}
 
-        by_device: Dict[int, Dict[str, Any]] = {
-            d.id: {"service_id": d.service_id, "assigned": None, "deferred": deferred[d.id]} for d in self.devices.values()
-        }
+        # Edges: BR{i}
+        for e in self.edges.values():
+            groups: Dict[int, Dict[str, Any]] = {}  # sid -> {sum_alloc_ghz, devs:set}
+            for x in edge_final[e.id]:
+                dev_id = x["dev_id"]
+                sid = self.devices[dev_id].service_id
+                g = groups.setdefault(sid, {"sum_alloc_ghz": 0.0, "devs": set()})
+                g["sum_alloc_ghz"] += x["f_alloc_ghz"]
+                g["devs"].add(dev_id)
 
-        # Edge entries
-        for eid, lst in edge_final.items():
-            e = self.edges[eid]
-            for x in lst:
-                d = self.devices[x["dev_id"]]
-                s = self.services[d.service_id]
-                uplink_ms = x["comps"]["uplink_ms"]
-                edge_compute_ms = 1000.0 * s.cycles_per_invocation_gcyc / x["f_alloc_ghz"] if x["f_alloc_ghz"] > 0 else math.inf
-                total_ms = uplink_ms + edge_compute_ms
-                by_device[x["dev_id"]]["assigned"] = {
-                    "where": "edge",
-                    "edge_id": eid,
-                    "total_time_ms": total_ms,
-                    "components": {
-                        "uplink_ms": uplink_ms,
-                        "edge_compute_ms": edge_compute_ms,
-                        "cloud_net_oneway_ms": None,
-                        "cloud_compute_ms": None,
-                    },
-                    "cpu_share_ghz": x["f_alloc_ghz"],
-                    "num_devices_on_chosen_node": len(devices_on_edge[eid]),
-                }
-                by_device[x["dev_id"]]["deferred"] = False
+            items = []
+            for sid, g in groups.items():
+                frac = (g["sum_alloc_ghz"] / e.cpu_capacity_ghz) if e.cpu_capacity_ghz > 0 else 0.0
+                items.append({
+                    "process_name": f"P{sid}",
+                    "num_mns": len(g["devs"]),
+                    "cpu_share": round(frac, 2)
+                })
 
-        # Cloud entries
+            # ordinamento stabile: quota desc, poi nome processo
+            items.sort(key=lambda it: (-it["cpu_share"], it["process_name"]))
+            result[f"BR{e.id}"] = items
+
+        # Cloud: CN
+        groups_cloud: Dict[int, Dict[str, Any]] = {}
         for x in cloud_final:
-            d = self.devices[x["dev_id"]]
-            s = self.services[d.service_id]
-            uplink_ms = x["comps"]["uplink_ms"]
-            cloud_oneway_ms = x["comps"]["cloud_net_oneway_ms"]
-            cloud_compute_ms = 1000.0 * s.cycles_per_invocation_gcyc / x["f_alloc_ghz"] if x["f_alloc_ghz"] > 0 else math.inf
-            total_ms = uplink_ms + cloud_oneway_ms + cloud_compute_ms
-            by_device[x["dev_id"]]["assigned"] = {
-                "where": "cloud",
-                "edge_id": None,
-                "total_time_ms": total_ms,
-                "components": {
-                    "uplink_ms": uplink_ms,
-                    "edge_compute_ms": None,
-                    "cloud_net_oneway_ms": cloud_oneway_ms,
-                    "cloud_compute_ms": cloud_compute_ms,
-                },
-                "cpu_share_ghz": x["f_alloc_ghz"],
-                "num_devices_on_chosen_node": len(devices_on_cloud),
-            }
-            by_device[x["dev_id"]]["deferred"] = False
+            dev_id = x["dev_id"]
+            sid = self.devices[dev_id].service_id
+            g = groups_cloud.setdefault(sid, {"sum_alloc_ghz": 0.0, "devs": set()})
+            g["sum_alloc_ghz"] += x["f_alloc_ghz"]
+            g["devs"].add(dev_id)
 
-        node_stats = {
-            "edges": {
-                e.id: {
-                    "num_tasks": len(edge_final[e.id]),
-                    "num_devices": len(devices_on_edge[e.id]),
-                    "cpu_capacity_ghz": e.cpu_capacity_ghz,
-                    "cpu_allocated_ghz": sum(it["f_alloc_ghz"] for it in edge_final[e.id]) if edge_final[e.id] else 0.0,
-                }
-                for e in self.edges.values()
-            },
-            "cloud": {
-                "num_tasks": len(cloud_final),
-                "num_devices": len(devices_on_cloud),
-                "cpu_capacity_ghz": self.cloud.cpu_capacity_ghz,
-                "cpu_allocated_ghz": sum(it["f_alloc_ghz"] for it in cloud_final) if cloud_final else 0.0,
-            },
-        }
+        items_cn = []
+        for sid, g in groups_cloud.items():
+            frac = (g["sum_alloc_ghz"] / self.cloud.cpu_capacity_ghz) if self.cloud.cpu_capacity_ghz > 0 else 0.0
+            items_cn.append({
+                "process_name": f"P{sid}",
+                "num_mns": len(g["devs"]),
+                "cpu_share": round(frac, 2)
+            })
+        items_cn.sort(key=lambda it: (-it["cpu_share"], it["process_name"]))
+        result["CN"] = items_cn
 
-        return {"by_device": by_device, "node_stats": node_stats}
+        # Log riassuntivo
+        debug("\n== OUTPUT (per nodo, aggregato per servizio) ==")
+        for node_key, arr in result.items():
+            if not arr:
+                debug(f"{node_key}: []")
+            else:
+                for rec in arr:
+                    debug(f"{node_key}: {rec['process_name']}  num_mns={rec['num_mns']}  cpu_share={rec['cpu_share']:.2f}")
+
+        return result
+
 
 
 class OJSTRWrapper:
