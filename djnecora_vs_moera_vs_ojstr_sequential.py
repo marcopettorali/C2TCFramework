@@ -108,8 +108,8 @@ def plot_results():
     with open(f"out/djnecora_initialfraction_{SCENARIO}.json", "r") as f:
         djnecora_results = json.load(f)
 
-    splitting_policies = ["no_splitting", "lazy_splitting", "greedy_splitting"]
-    selection_policies = ["first_fit", "next_fit", "best_fit", "worst_fit", "random_fit"]
+    splitting_policies = ["lazy_splitting"]  # ["no_splitting", "lazy_splitting", "greedy_splitting"]
+    selection_policies = ["worst_fit"]  # ["first_fit", "next_fit", "best_fit", "worst_fit", "random_fit"]
 
     # 1 plot per splitting policy
     for sp in splitting_policies:
@@ -123,7 +123,7 @@ def plot_results():
         data = {k.replace("Random-Fit", "Random"): v for k, v in data.items()}
 
         # MOERA result
-        data["MOERA"] = (
+        data["MOERA\\\\allocated"] = (
             avg(
                 ulb := mean_confidence_interval(
                     [sum(x["num_mns"] for br, br_data in rep_data.items() for x in br_data) for rep_data in moera_results]
@@ -133,10 +133,49 @@ def plot_results():
         )
 
         # OJSTR result
-        data["OJSTR"] = (
+        data["OJSTR\\\\allocated"] = (
             avg(
                 ulb := mean_confidence_interval(
                     [sum(x["num_mns"] for br, br_data in rep_data.items() for x in br_data) for rep_data in ojstr_results]
+                )
+            ),
+            ci_err(ulb),
+        )
+
+        test_context = JNecora.load_context_from_file(
+            f"configs/{SCENARIO}.json", cpu_shares_descriptor={"cpu_share_precision": 0.01, "cpu_share_round_precision": 2}
+        )
+
+        def compute_supported(host_label, split_allocation):
+            # floor cpu share to match test_context precision
+            if test_context.hosts[host_label].infinite_parallelism:
+                cpu_share = 1.0
+            else:
+                cpu_share = int(split_allocation["cpu_share"] * 100) / 100.0
+            max_delay_ms = test_context.processes[split_allocation["process_name"]].max_delay_ms
+
+            supported = 0
+            for num_mns in range(1, split_allocation["num_mns"] + 1):
+                gamma_tot = test_context.links["gamma_tot_precomputed"][(split_allocation["process_name"], host_label, cpu_share, num_mns)]
+                if gamma_tot <= max_delay_ms:
+                    supported += 1
+                else:
+                    break
+            return supported
+
+        data["MOERA\\\\supported"] = (
+            avg(
+                ulb := mean_confidence_interval(
+                    [sum(compute_supported(br, x) for br, br_data in rep_data.items() for x in br_data) for rep_data in moera_results]
+                )
+            ),
+            ci_err(ulb),
+        )
+
+        data["OJSTR\\\\supported"] = (
+            avg(
+                ulb := mean_confidence_interval(
+                    [sum(compute_supported(br, x) for br, br_data in rep_data.items() for x in br_data) for rep_data in ojstr_results]
                 )
             ),
             ci_err(ulb),
@@ -154,7 +193,7 @@ def plot_results():
 
         colors = [
             {"no_splitting": "#80b1d3", "lazy_splitting": "#b3de69", "greedy_splitting": "#fb8072"}[sp] for _ in selection_policies
-        ] + ["#bebada", "#8dd3c7", "#ffffb3"]
+        ] + ["#bebada", "#8dd3c7", "#bebada", "#8dd3c7", "#ffffb3"]
 
         fig, ax = plt.subplots()
         for i, alg in enumerate(data.keys()):
