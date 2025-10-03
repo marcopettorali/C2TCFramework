@@ -737,7 +737,7 @@ if __name__ == "__main__":
 
     # Load the context from the config file
     scenario_name = args.scenario_name
-    context = JNecora.load_context_from_file(f"configs/{scenario_name}.json")
+    context = JNecora.load_context_from_file(f"configs/{scenario_name}.json", cpu_shares_descriptor={"fair_shares": "num_processes"})
 
     jnecora = JNecora()
     jnecora.set_context(context)
