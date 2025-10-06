@@ -18,13 +18,13 @@ context = DJNecora.load_context_from_file(
 )
 
 results_file = f"out/djnecora_vs_moera_vs_ojstr_{SCENARIO}.json"
-
+set_logging_level("focus")
 
 def run_experiments():
 
     # Run experiments
 
-    results = {"MOERA": [], "OJSTR": []}
+    results = {"MOERA": [], "OJSTR merge false": [], "OJSTR merge true": []}
 
     for rep in range(NUM_REPETITIONS):
         focus(f"--- REPETITION {rep + 1}/{NUM_REPETITIONS} ---")
@@ -33,7 +33,8 @@ def run_experiments():
         moera = MOERA()
         moera.set_context(copy.deepcopy(context))
 
-        ojstr = OJSTRWrapper(context)
+        ojstr_merge_false = OJSTRWrapper(copy.deepcopy(context), merge_vms=False)
+        ojstr_merge_true = OJSTRWrapper(copy.deepcopy(context), merge_vms=True)
 
         set_logging_level("focus")
 
@@ -68,14 +69,17 @@ def run_experiments():
             moera.add_1_mn(process_name)
 
             # OJSTR
-            ojstr.add_1_mn(process_name)
+            ojstr_merge_false.add_1_mn(process_name)
+            ojstr_merge_true.add_1_mn(process_name)
 
         # finalize OJSTR allocation
-        plan = ojstr.compute_final_allocation()
+        plan_merge_false = ojstr_merge_false.compute_final_allocation()
+        plan_merge_true = ojstr_merge_true.compute_final_allocation()
 
         # store results
         results["MOERA"].append(moera._allocation_map)
-        results["OJSTR"].append(plan)
+        results["OJSTR merge false"].append(plan_merge_false)
+        results["OJSTR merge true"].append(plan_merge_true)
 
         # dump data to json
         import json
@@ -85,6 +89,8 @@ def run_experiments():
 
 
 def plot_results():
+
+    set_logging_level("info")
     # load results from json
     import json
     from utils.stats import mean_confidence_interval, avg, ci_err
@@ -102,7 +108,8 @@ def plot_results():
     with open(results_file, "r") as f:
         data = json.load(f)
     moera_results = data["MOERA"]
-    ojstr_results = data["OJSTR"]
+    ojstr_merge_false_results = data["OJSTR merge false"]
+    ojstr_merge_true_results = data["OJSTR merge true"]
 
     # DJ-NECORA
     with open(f"out/djnecora_initialfraction_{SCENARIO}.json", "r") as f:
@@ -133,10 +140,19 @@ def plot_results():
         )
 
         # OJSTR result
-        data["OJSTR\\\\allocated"] = (
+        data["OJSTR merge false\\\\allocated"] = (
             avg(
                 ulb := mean_confidence_interval(
-                    [sum(x["num_mns"] for br, br_data in rep_data.items() for x in br_data) for rep_data in ojstr_results]
+                    [sum(x["num_mns"] for br, br_data in rep_data.items() for x in br_data) for rep_data in ojstr_merge_false_results]
+                )
+            ),
+            ci_err(ulb),
+        )
+
+        data["OJSTR merge true\\\\allocated"] = (
+            avg(
+                ulb := mean_confidence_interval(
+                    [sum(x["num_mns"] for br, br_data in rep_data.items() for x in br_data) for rep_data in ojstr_merge_true_results]
                 )
             ),
             ci_err(ulb),
@@ -172,10 +188,25 @@ def plot_results():
             ci_err(ulb),
         )
 
-        data["OJSTR\\\\supported"] = (
+        data["OJSTR merge false\\\\supported"] = (
             avg(
                 ulb := mean_confidence_interval(
-                    [sum(compute_supported(br, x) for br, br_data in rep_data.items() for x in br_data) for rep_data in ojstr_results]
+                    [
+                        sum(compute_supported(br, x) for br, br_data in rep_data.items() for x in br_data)
+                        for rep_data in ojstr_merge_false_results
+                    ]
+                )
+            ),
+            ci_err(ulb),
+        )
+
+        data["OJSTR merge true\\\\supported"] = (
+            avg(
+                ulb := mean_confidence_interval(
+                    [
+                        sum(compute_supported(br, x) for br, br_data in rep_data.items() for x in br_data)
+                        for rep_data in ojstr_merge_true_results
+                    ]
                 )
             ),
             ci_err(ulb),
@@ -193,7 +224,7 @@ def plot_results():
 
         colors = [
             {"no_splitting": "#80b1d3", "lazy_splitting": "#b3de69", "greedy_splitting": "#fb8072"}[sp] for _ in selection_policies
-        ] + ["#bebada", "#8dd3c7", "#bebada", "#8dd3c7", "#ffffb3"]
+        ] + ["#bebada", "#8dd3c7", "#8dd3c7", "#bebada", "#8dd3c7", "#8dd3c7", "#ffffb3"]
 
         fig, ax = plt.subplots()
         for i, alg in enumerate(data.keys()):

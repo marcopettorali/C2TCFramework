@@ -27,6 +27,7 @@ print = console.print
 
 ###
 
+
 class LogLevel(Enum):
     ALL = "all"
     DEBUG = "debug"
@@ -43,12 +44,14 @@ class LogLevel(Enum):
 
 _LOGGING_LEVEL = LogLevel.DEBUG
 
+
 def set_logging_level(level: LogLevel):
     global _LOGGING_LEVEL
 
     if isinstance(level, str):
         level = LogLevel[level.upper()]
     _LOGGING_LEVEL = level
+
 
 def _markdown_to_rich(text: str) -> str:
     """
@@ -77,7 +80,7 @@ def _merge_style(base_style: str, kw: dict) -> dict:
     """Pop 'style' e mergia con base_style; evita collisioni."""
     kw = dict(kw)  # copia
     user_style = kw.pop("style", "")
-    kw["style"] = (f"{base_style} {user_style}".strip() if user_style else base_style)
+    kw["style"] = f"{base_style} {user_style}".strip() if user_style else base_style
     return kw
 
 
@@ -99,14 +102,11 @@ def _print_arg(arg, kw: dict, end: str, user_markup: bool | None):
         transformed = _markdown_to_rich(original)
         if user_markup is None:
             # Attiva markup solo se la trasformazione ha cambiato la stringa
-            use_markup = (transformed != original)
+            use_markup = transformed != original
         else:
             # L'utente ha forzato markup: rispetta la scelta
             use_markup = bool(user_markup)
-        console.print(transformed if use_markup else original,
-                      end=end,
-                      markup=use_markup,
-                      **base_kw)
+        console.print(transformed if use_markup else original, end=end, markup=use_markup, **base_kw)
         return
 
     # Oggetto non-stringa: stampalo direttamente; niente markup necessario
@@ -127,13 +127,18 @@ def _base_print(prefix, base_style, *args, **kwargs):
     # Prefisso con timestamp
     timestamp = datetime.now().strftime("%H:%M:%S.%f")
     prefix_text = Text(f"[{timestamp} {prefix}]")
-    console.print(prefix_text, end=" ", **{k: v for k, v in kw.items() if k not in ("end", "markup")})
+    console.print(
+        prefix_text,
+        end=" ",
+        style=("dim " + kw.get("style", "")).strip(),
+        **{k: v for k, v in kw.items() if k not in ("end", "markup", "style")},
+    )
 
     # Stampa gli argomenti in sequenza, separati da spazio
     n = len(args)
     for i, arg in enumerate(args):
-        is_last = (i == n - 1)
-        end = (user_end if user_end is not None else (" " if not is_last else " "))
+        is_last = i == n - 1
+        end = user_end if user_end is not None else (" " if not is_last else " ")
         _print_arg(arg, kw, end=end, user_markup=user_markup)
 
     # Info del chiamante (due frame indietro: wrapper -> chiamante)

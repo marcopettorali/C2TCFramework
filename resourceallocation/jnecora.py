@@ -46,6 +46,126 @@ PACKET_LOSS_MS = 10000
 MAX_MNS_PER_PROCESS = 13
 
 
+### UTILITIES ###
+# TODO: REFACTOR ALL UTILITIES even from other modules!!!!!!
+# TODO: CHANGE NAMES!!!!!! PH, PHM is not clear at all!
+class JNecoraUtilities:
+
+    @staticmethod
+    def get_considered_num_mns_ph(context: Context, process_name: str, host_label: str):
+        """
+        Returns the number of MNs considered for a given process and host.
+
+        Args:
+            context (Context): The simulation context.
+            process_name (str): The name of the process.
+            host_label (str): The label of the host.
+        Returns:
+            list: A list of integers representing the number of MNs considered.
+        """
+        return sorted(
+            list(set([x[3] for x in context.links["gamma_tot_precomputed"].keys() if x[0] == process_name and x[1] == host_label]))
+        )
+
+    @staticmethod
+    def compute_min_cpu_phm(context: Context, process_name: str, host_label: str, num_mns: int, unit: str):
+        """
+        Computes the minimum CPU share required to allocate a process on a host with a given number of MNs.
+
+        Args:
+            context (Context): The simulation context.
+            process_name (str): The name of the process.
+            host_label (str): The label of the host.
+            num_mns (int): The number of MNs allocated to the process.
+            unit (str): The unit of the CPU ("share" or "ghz").
+
+        Returns:
+            float: The minimum CPU share required, or float('inf') if not feasible.
+        """
+        assert isinstance(context, Context), "context must be an instance of Context"
+        assert process_name in context.processes, f"process {process_name} not found in context"
+        assert host_label in context.hosts, f"host {host_label} not found in context"
+        assert isinstance(num_mns, int) and num_mns > 0, "num_mns must be a positive integer"
+        assert unit in ["share", "ghz"], f"unit must be 'share' or 'ghz', is {unit}"
+
+        process = context.processes[process_name]
+        max_delay_ms = process.max_delay_ms
+
+        _useful_records = {
+            key: val
+            for key, val in context.links["gamma_tot_precomputed"].items()
+            if key[0] == process_name and key[1] == host_label and key[3] == num_mns
+        }
+
+        if not _useful_records:
+            return None
+
+        min_cpu = min([key[2] for key, val in _useful_records.items() if val <= max_delay_ms], default=None)
+        if unit == "share":
+            return min_cpu
+        elif unit == "ghz":
+            min_cpu = min_cpu * context.hosts[host_label].cpu_ghz if min_cpu is not None else None
+            return min_cpu
+        else:
+            raise ValueError(f"Invalid unit: {unit}")
+
+    @staticmethod
+    def compute_min_cpu_ph(context: Context, process_name: str, host_label: str, unit: str):
+        """
+        Computes the minimum CPU share required to allocate a process on a host with a given number of MNs.
+
+        Args:
+            context (Context): The simulation context.
+            process_name (str): The name of the process.
+            host_label (str): The label of the host.
+            num_mns (int): The number of MNs allocated to the process.
+
+        Returns:
+            float: The minimum CPU share required, or float('inf') if not feasible.
+        """
+        assert isinstance(context, Context), "context must be an instance of Context"
+        assert process_name in context.processes, f"process {process_name} not found in context"
+        assert host_label in context.hosts, f"host {host_label} not found in context"
+
+        return {
+            num_mns: JNecoraUtilities.compute_min_cpu_phm(context, process_name, host_label, num_mns, unit)
+            for num_mns in JNecoraUtilities.get_considered_num_mns_ph(context, process_name, host_label)
+        }
+
+    @staticmethod
+    def compute_min_cpu_share_ph(context: Context, process_name: str, host_label: str):
+        """
+        Computes the minimum CPU share required to allocate a process on a host with a given number of MNs.
+
+        Args:
+            context (Context): The simulation context.
+            process_name (str): The name of the process.
+            host_label (str): The label of the host.
+
+        Returns:
+            float: The minimum CPU share required, or float('inf') if not feasible.
+        """
+        return JNecoraUtilities.compute_min_cpu_ph(context, process_name, host_label, unit="share")
+
+    @staticmethod
+    def compute_min_cpu_ghz_ph(context: Context, process_name: str, host_label: str):
+        """
+        Computes the minimum CPU share required to allocate a process on a host with a given number of MNs.
+
+        Args:
+            context (Context): The simulation context.
+            process_name (str): The name of the process.
+            host_label (str): The label of the host.
+
+        Returns:
+            float: The minimum CPU share required, or float('inf') if not feasible.
+        """
+        return JNecoraUtilities.compute_min_cpu_ph(context, process_name, host_label, unit="ghz")
+
+
+### END UTILITIES ###
+
+
 def _compute_end_to_end_communication_delays(context: Context):
     """
     Computes the end-to-end communication delays between processes and hosts in the topology graph.
@@ -96,7 +216,6 @@ def _compute_end_to_end_communication_delays(context: Context):
 
 
 _DELAY_CACHE = {}
-
 
 def compute_delay_at_min_reliability(context: Context, process: Process, host: Host, cpu_share: float):
     """
