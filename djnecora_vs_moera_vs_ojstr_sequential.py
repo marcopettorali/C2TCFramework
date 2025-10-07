@@ -1,6 +1,6 @@
 from dataclasses import asdict
 from resourceallocation.jnecora import JNecora
-from resourceallocation.moera import MOERA
+from resourceallocation.moera import MOERA, MOERAWrapper
 from resourceallocation.djnecora import DJNecora
 from resourceallocation.ojstr import OJSTRWrapper
 import copy
@@ -8,30 +8,31 @@ import random
 from utils.logging import focus, info, set_logging_level
 
 SCENARIO = "scenario1_het1"
-NUM_REPETITIONS = 50
+NUM_REPETITIONS = 100
 MAX_MNS = 13  # -1  # set to -1 to allocate all MNs of each process
 LOAD_MNS_LIST_FROM_FILE = "out/djnecora_initialfraction_scenario1_het1.json"  # None
 
 # set coarse grain
-context = DJNecora.load_context_from_file(
-    f"configs/{SCENARIO}.json", cpu_shares={"cpu_share_precision": 0.01, "cpu_share_round_precision": 2}
+context = JNecora.load_context_from_file(
+    f"configs/{SCENARIO}.json", cpu_shares_descriptor={"cpu_share_precision": 0.01, "cpu_share_round_precision": 2}
 )
 
 results_file = f"out/djnecora_vs_moera_vs_ojstr_{SCENARIO}.json"
 set_logging_level("focus")
 
+
 def run_experiments():
 
     # Run experiments
 
-    results = {"MOERA": [], "OJSTR merge false": [], "OJSTR merge true": []}
+    results = {"MOERA merge false": [], "MOERA merge true": [], "OJSTR merge false": [], "OJSTR merge true": []}
 
     for rep in range(NUM_REPETITIONS):
         focus(f"--- REPETITION {rep + 1}/{NUM_REPETITIONS} ---")
 
         # Initialize algorithms
-        moera = MOERA()
-        moera.set_context(copy.deepcopy(context))
+        moera_merge_false = MOERAWrapper(copy.deepcopy(context), merge_vms=False)
+        moera_merge_true = MOERAWrapper(copy.deepcopy(context), merge_vms=True)
 
         ojstr_merge_false = OJSTRWrapper(copy.deepcopy(context), merge_vms=False)
         ojstr_merge_true = OJSTRWrapper(copy.deepcopy(context), merge_vms=True)
@@ -42,7 +43,7 @@ def run_experiments():
         if LOAD_MNS_LIST_FROM_FILE is None:
 
             # get process list
-            process_list = list(moera.context.processes.keys())
+            process_list = list(context.processes.keys())
 
             # get MNs list
             mns_list = [p for p in process_list for _ in range(0, MAX_MNS if MAX_MNS >= 0 else context.processes[p].mns)]
@@ -66,20 +67,25 @@ def run_experiments():
             info(f"\tAllocating MN {mn_index} of process {process_name}")
 
             # MOERA
-            moera.add_1_mn(process_name)
+            moera_merge_false.add_1_mn(process_name)
+            moera_merge_true.add_1_mn(process_name)
 
             # OJSTR
             ojstr_merge_false.add_1_mn(process_name)
             ojstr_merge_true.add_1_mn(process_name)
 
-        # finalize OJSTR allocation
-        plan_merge_false = ojstr_merge_false.compute_final_allocation()
-        plan_merge_true = ojstr_merge_true.compute_final_allocation()
+        # finalize allocation
+        moera_plan_merge_false = moera_merge_false.get_plan()
+        moera_plan_merge_true = moera_merge_true.get_plan()
+
+        ojstr_plan_merge_false = ojstr_merge_false.compute_final_allocation()
+        ojstr_plan_merge_true = ojstr_merge_true.compute_final_allocation()
 
         # store results
-        results["MOERA"].append(moera._allocation_map)
-        results["OJSTR merge false"].append(plan_merge_false)
-        results["OJSTR merge true"].append(plan_merge_true)
+        results["MOERA merge false"].append(moera_plan_merge_false)
+        results["MOERA merge true"].append(moera_plan_merge_true)
+        results["OJSTR merge false"].append(ojstr_plan_merge_false)
+        results["OJSTR merge true"].append(ojstr_plan_merge_true)
 
         # dump data to json
         import json
@@ -107,7 +113,8 @@ def plot_results():
     # MOERA and OJSTR
     with open(results_file, "r") as f:
         data = json.load(f)
-    moera_results = data["MOERA"]
+    moera_merge_false_results = data["MOERA merge false"]
+    moera_merge_true_results = data["MOERA merge true"]
     ojstr_merge_false_results = data["OJSTR merge false"]
     ojstr_merge_true_results = data["OJSTR merge true"]
 
@@ -130,10 +137,19 @@ def plot_results():
         data = {k.replace("Random-Fit", "Random"): v for k, v in data.items()}
 
         # MOERA result
-        data["MOERA\\\\allocated"] = (
+        data["MOERA merge false\\\\allocated"] = (
             avg(
                 ulb := mean_confidence_interval(
-                    [sum(x["num_mns"] for br, br_data in rep_data.items() for x in br_data) for rep_data in moera_results]
+                    [sum(x["num_mns"] for br, br_data in rep_data.items() for x in br_data) for rep_data in moera_merge_false_results]
+                )
+            ),
+            ci_err(ulb),
+        )
+
+        data["MOERA merge true\\\\allocated"] = (
+            avg(
+                ulb := mean_confidence_interval(
+                    [sum(x["num_mns"] for br, br_data in rep_data.items() for x in br_data) for rep_data in moera_merge_true_results]
                 )
             ),
             ci_err(ulb),
@@ -179,10 +195,25 @@ def plot_results():
                     break
             return supported
 
-        data["MOERA\\\\supported"] = (
+        data["MOERA merge false\\\\supported"] = (
             avg(
                 ulb := mean_confidence_interval(
-                    [sum(compute_supported(br, x) for br, br_data in rep_data.items() for x in br_data) for rep_data in moera_results]
+                    [
+                        sum(compute_supported(br, x) for br, br_data in rep_data.items() for x in br_data)
+                        for rep_data in moera_merge_false_results
+                    ]
+                )
+            ),
+            ci_err(ulb),
+        )
+
+        data["MOERA merge true\\\\supported"] = (
+            avg(
+                ulb := mean_confidence_interval(
+                    [
+                        sum(compute_supported(br, x) for br, br_data in rep_data.items() for x in br_data)
+                        for rep_data in moera_merge_true_results
+                    ]
                 )
             ),
             ci_err(ulb),
@@ -224,7 +255,7 @@ def plot_results():
 
         colors = [
             {"no_splitting": "#80b1d3", "lazy_splitting": "#b3de69", "greedy_splitting": "#fb8072"}[sp] for _ in selection_policies
-        ] + ["#bebada", "#8dd3c7", "#8dd3c7", "#bebada", "#8dd3c7", "#8dd3c7", "#ffffb3"]
+        ] + ["#bebada", "#bebada", "#8dd3c7", "#8dd3c7", "#bebada", "#bebada", "#8dd3c7", "#8dd3c7", "#ffffb3"]
 
         fig, ax = plt.subplots()
         for i, alg in enumerate(data.keys()):

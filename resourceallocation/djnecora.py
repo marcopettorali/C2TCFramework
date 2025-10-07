@@ -36,15 +36,15 @@ class DJNecora(JNecora):
         self.selection_policy = selection_policy
         self._hosts_initialized = False
 
-    @staticmethod
-    def load_context_from_file(
-        config_path: str,
-        pickle_context: bool = True,
-        pickle_folder_relative_path: str = "pickles/djnecora",
-        # cpu_shares=list([float(x) for x in np.linspace(0, 1, 51)][1:]),
-        cpu_shares={"cpu_ghz_precision": 0.01},  # 10 MHz precision
-    ):
-        return JNecora.load_context_from_file(config_path, cpu_shares, pickle_context, pickle_folder_relative_path)
+    # @staticmethod
+    # def load_context_from_file(
+    #     config_path: str,
+    #     pickle_context: bool = True,
+    #     pickle_folder_relative_path: str = "pickles/djnecora",
+    #     # cpu_shares=list([float(x) for x in np.linspace(0, 1, 51)][1:]),
+    #     cpu_shares={"cpu_ghz_precision": 0.01},  # 10 MHz precision
+    # ):
+    #     return JNecora.load_context_from_file(config_path, cpu_shares, pickle_context, pickle_folder_relative_path)
 
     def initialize_hosts(self):
         if self.context is None:
