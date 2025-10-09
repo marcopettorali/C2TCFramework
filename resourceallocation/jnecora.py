@@ -34,13 +34,6 @@ from utils.ga import ga_optimization
 from utils.plotting import draw_paths, draw_topology
 from utils.logging import debug, error, focus, info, print, warning
 
-# Check if OMP_NUM_THREADS is set to 1
-if "OMP_NUM_THREADS" not in os.environ or os.environ["OMP_NUM_THREADS"] != "1":
-    error(
-        "The OMP_NUM_THREADS environment variable is not set to 1.\nUse '**export OMP_NUM_THREADS=1**' to set it.\nThis is required to avoid issues with multiprocessing and OpenMP."
-    )
-    exit(1)
-
 # GLOBAL VARIABLES (WATCH OUT!)
 PACKET_LOSS_MS = 10000
 MAX_MNS_PER_PROCESS = 13
@@ -216,6 +209,7 @@ def _compute_end_to_end_communication_delays(context: Context):
 
 
 _DELAY_CACHE = {}
+
 
 def compute_delay_at_min_reliability(context: Context, process: Process, host: Host, cpu_share: float):
     """
@@ -505,6 +499,14 @@ class JNecora:
 
         # load the config file
         info("**No pickle file found**, loading the context from the config file")
+
+        # Check if OMP_NUM_THREADS is set to 1
+        if "OMP_NUM_THREADS" not in os.environ or os.environ["OMP_NUM_THREADS"] != "1":
+            error(
+                "The OMP_NUM_THREADS environment variable is not set to 1.\nUse '**export OMP_NUM_THREADS=1**' to set it.\nThis is required to avoid issues with multiprocessing and OpenMP."
+            )
+            exit(1)
+
         context = load_context(config_path)
 
         # compute the gamma_com for each process and host
