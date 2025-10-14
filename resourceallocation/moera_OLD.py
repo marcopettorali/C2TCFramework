@@ -212,10 +212,19 @@ class MOERA:
 
 if __name__ == "__main__":
     from resourceallocation.jnecora import JNecora
-    context = JNecora.load_context_from_file("configs/scenario1_het1.json", cpu_shares_descriptor={"fair_shares":"num_processes"})
-    
-    moera = MOERA()
-    moera.set_context(context)
-    moera.add_1_mn("P0")
-    moera.add_1_mn("P0")
-    moera.add_1_mn("P1")
+    from utils.logging import info, set_logging_level
+
+    set_logging_level("info")
+
+    context = JNecora.load_context_from_file(
+        "configs/scenario1_het1.json", cpu_shares_descriptor={"cpu_share_precision": 0.01, "cpu_share_round_precision": 2}
+    )
+
+    info("=== MOERAWrapper merge_vms=True ===")
+    mw = MOERA(context)
+    for _ in range(3):
+        mw.add_1_mn("P7")
+    for _ in range(3):
+        mw.add_1_mn("P6")
+
+    info(mw.get_plan())

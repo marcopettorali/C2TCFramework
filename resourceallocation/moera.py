@@ -302,7 +302,6 @@ class MOERAWrapper:
                 # ASSUMPTION: linear scaling of CPU vs response time
                 # ASSUMPTION: linear scaling of response time vs number of MNs
 
-                debug(cpu_profile)
                 _old_cpu_profile = dict(cpu_profile)
 
                 # let's compute the average time with the benchmark device for 1 MN
@@ -320,8 +319,6 @@ class MOERAWrapper:
                     if cpu is not None:
                         cpu_profile[num_mns] = cpu * factor
 
-                debug(cpu_profile)
-
                 def check(x, y):
                     if x is not None and y is not None:
                         return x < y
@@ -336,7 +333,6 @@ class MOERAWrapper:
 
                 prof_per_host[host_label] = dict(cpu_profile)
             process_profiles_ghz[process_name] = prof_per_host
-            debug(f"[INIT] profile (GHz totals) for {process_name}: {prof_per_host}")
 
         # 4) Istanzia il core (usa SEMPRE i profili; con merge_vms=False userà k=1)
         self.moera = MOERA(
@@ -382,27 +378,18 @@ if __name__ == "__main__":
     from resourceallocation.jnecora import JNecora
     from utils.logging import info, set_logging_level
 
-    set_logging_level("info")
+    set_logging_level("debug")
 
     context = JNecora.load_context_from_file(
         "configs/scenario1_het1.json", cpu_shares_descriptor={"cpu_share_precision": 0.01, "cpu_share_round_precision": 2}
     )
 
-    # Caso A: comportamento originale (scalar)
-    info("=== MOERAWrapper merge_vms=False ===")
-    mw = MOERAWrapper(context, merge_vms=False)
-    for _ in range(2):
-        mw.add_1_mn("P0")
-
-    mw.add_1_mn("P1")
-    info(mw.get_plan())
-
-    info("=== MOERAWrapper merge_vms=True ===")
     mw = MOERAWrapper(context, merge_vms=True)
-    for _ in range(2):
-        mw.add_1_mn("P0")
+    for _ in range(3):
+        mw.add_1_mn("P7")
+    # for _ in range(3):
+    #     mw.add_1_mn("P6")
 
-    mw.add_1_mn("P1")
     info(mw.get_plan())
 
     # Caso B: profili assoluti per host/#MN (come OJSTR merge_vms=True)
