@@ -222,6 +222,9 @@ def debug_plots():
     considered_hosts = [f"BR{i}" for i in range(0, 5 + 1)] + ["CN"]  # TODO CHECK
     considered_apps = [f"P{i}" for i in range(0, 7 + 1)]  # TODO CHECK
 
+    def map_results_key(key: str) -> str:
+        return key.replace("merge true", "merge").replace("merge false", "no merge")
+
 
     # MOERA and OJSTR
     with open(results_file, "r") as f:
@@ -254,10 +257,12 @@ def debug_plots():
         avg_splits_per_app = {}
 
         avg_mns_per_app = {}
+        avg_mns_per_host = {}
         for algorithm_name, allocations_by_rep in results.items():
             avg_splits_per_host[algorithm_name] = {}
             avg_splits_per_app[algorithm_name] = {}
             avg_mns_per_app[algorithm_name] = {}
+            avg_mns_per_host[algorithm_name] = {}
 
             for allocation in allocations_by_rep:
                 # count splits per host
@@ -267,6 +272,11 @@ def debug_plots():
                     if host_name not in avg_splits_per_host[algorithm_name]:
                         avg_splits_per_host[algorithm_name][host_name] = []
                     avg_splits_per_host[algorithm_name][host_name].append(len(allocation_on_host))
+                    
+                    if host_name not in avg_mns_per_host[algorithm_name]:
+                        avg_mns_per_host[algorithm_name][host_name] = []
+                    num_mns_on_host = sum(x["num_mns"] for x in allocation_on_host)
+                    avg_mns_per_host[algorithm_name][host_name].append(num_mns_on_host)
 
                 # count splits per app
                 for app_name in considered_apps:
@@ -300,12 +310,18 @@ def debug_plots():
                     ci_err(ulb),
                 )
 
+            for host_name in avg_mns_per_host[algorithm_name]:
+                avg_mns_per_host[algorithm_name][host_name] = (
+                    avg(ulb := mean_confidence_interval(avg_mns_per_host[algorithm_name][host_name])),
+                    ci_err(ulb),
+                )
+
         latex_initialize()
 
         # PLOTS PER HOST
         data_matrix_per_host = {}
         for algorithm_name, splits_per_host in avg_splits_per_host.items():
-            data_matrix_per_host[algorithm_name] = [splits_per_host.get(host, (0, 0)) for host in considered_hosts]
+            data_matrix_per_host[map_results_key(algorithm_name)] = [splits_per_host.get(host, (0, 0)) for host in considered_hosts]
 
         for group_by_columns in [True, False]:
             fig, ax = plt.subplots(figsize=(10, 6))
@@ -335,7 +351,7 @@ def debug_plots():
 
         data_matrix_per_app = {}
         for algorithm_name, splits_per_app in avg_splits_per_app.items():
-            data_matrix_per_app[algorithm_name] = [splits_per_app.get(app, (0, 0)) for app in considered_apps]
+            data_matrix_per_app[map_results_key(algorithm_name)] = [splits_per_app.get(app, (0, 0)) for app in considered_apps]
 
         for group_by_columns in [True, False]:
             fig, ax = plt.subplots(figsize=(10, 6))
@@ -363,7 +379,7 @@ def debug_plots():
         # PLOTS AVG MNS PER APP
         data_matrix_mns_per_app = {}
         for algorithm_name, mns_per_app in avg_mns_per_app.items():
-            data_matrix_mns_per_app[algorithm_name] = [mns_per_app.get(app, (0, 0)) for app in considered_apps]
+            data_matrix_mns_per_app[map_results_key(algorithm_name)] = [mns_per_app.get(app, (0, 0)) for app in considered_apps]
 
         for group_by_columns in [True, False]:
             fig, ax = plt.subplots(figsize=(10, 6))
@@ -389,6 +405,34 @@ def debug_plots():
             fig.tight_layout()
             fig.savefig(f"out/plots/DEBUG_djnecora_comparison_{SCENARIO}_mns_per_app_by_{'alg' if group_by_columns else 'app'}_{metric}.pdf")
 
+        # PLOTS AVG MNS PER HOST
+        data_matrix_mns_per_host = {}
+        for algorithm_name, mns_per_host in avg_mns_per_host.items():
+            data_matrix_mns_per_host[map_results_key(algorithm_name)] = [mns_per_host.get(host, (0, 0)) for host in considered_hosts]
+        
+        for group_by_columns in [True, False]:  
+            fig, ax = plt.subplots(figsize=(10, 6))
+            grouped_bar_plot(
+                fig,
+                ax,
+                data_matrix_mns_per_host,
+                column_labels=[bold(h) for h in considered_hosts],
+                colors=["#80b1d3", "#b3de69", "#fb8072", "#bebada", "#8dd3c7", "#ffffb3", "#fccde5", "#d9d9d9"],
+                group_by_columns=group_by_columns,
+            )
+
+            ax.grid(axis="y")
+            ax.set_axisbelow(True)
+            ax.set_ylim(0,27)
+            ax.yaxis.set_major_locator(plt.MaxNLocator(integer=True))
+            ax.set_ylabel(bold("Avg number of MNs per host"))
+            ax.set_xlabel(bold("Host"))
+            fig.legend(
+                loc="upper center",
+                ncol=3,
+            )
+            fig.tight_layout()
+            fig.savefig(f"out/plots/DEBUG_djnecora_comparison_{SCENARIO}_mns_per_host_by_{'alg' if group_by_columns else 'host'}_{metric}.pdf")
 
 import os
 
