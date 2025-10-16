@@ -436,9 +436,9 @@ def debug_plots():
 
 import os
 
-# # Check if results file does not exist
-# if not os.path.exists(results_file):
-#     run_experiments()
+# Check if results file does not exist
+if not os.path.exists(results_file):
+    run_experiments()
 
 plot_results()
 debug_plots()

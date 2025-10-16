@@ -364,7 +364,7 @@ class OJSTR:
                 self._dev_assignment_index[dev_id] = {"state": "edge", "edge_id": eid, "f_alloc_ghz": f}
                 debug(f"    ✓ ASSIGN dev {dev_id} → EDGE {eid}: alloc={f:.3f} GHz " f"(residual {self._edge_residual_ghz[eid]:.3f})")
             else:
-                self._cloud_residual_ghz -= f
+                self._cloud_residual_ghz -= 0  # f # ASSUMPTION: cloud has infinite parallelism
                 self._assign_cloud.append({"dev_id": dev_id, "service_id": d.service_id, "f_alloc_ghz": f})
                 self._dev_assignment_index[dev_id] = {"state": "cloud", "f_alloc_ghz": f}
                 debug(f"    ✓ ASSIGN dev {dev_id} → CLOUD: alloc={f:.3f} GHz " f"(residual {self._cloud_residual_ghz:.3f})")
@@ -702,6 +702,9 @@ class OJSTRWrapper:
                             )  # conv ms->s
                             gcyc_avg = gcyc_prel * scaling_factor
                             profile_gcyc[key][num_mns] = gcyc_avg
+                
+                if host_label == "CN":  
+                    debug(f"Service {process_name} profile for cloud: {profile_gcyc['CN']}", style="red bold")
 
                 debug(f"Added service {process_name}, profile={profile_gcyc}, deadline={deadline_ms} ms")
                 service_id = self.ojstr.add_service(cycles_per_invocation_gcyc=profile_gcyc, deadline_ms=deadline_ms)
@@ -737,12 +740,11 @@ if __name__ == "__main__":
     context = JNecora.load_context_from_file(
         "configs/scenario1_het1.json", cpu_shares_descriptor={"cpu_share_precision": 0.01, "cpu_share_round_precision": 2}
     )
-    context.hosts = {k: v for k, v in context.hosts.items() if k in ("BR0", "CN")}  # only 1 edge
-    ojstr = OJSTRWrapper(context, merge_vms=False)
 
-    ojstr.add_1_mn("P0")
-    ojstr.add_1_mn("P0")
-    ojstr.add_1_mn("P0")
+    ojstr = OJSTRWrapper(context, merge_vms=True)
+
+    for _ in range(8):
+        ojstr.add_1_mn("P3")
 
     plan = ojstr.compute_final_allocation()
 

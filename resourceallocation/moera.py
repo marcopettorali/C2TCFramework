@@ -182,7 +182,7 @@ class MOERA:
         info(f"Selected host for process {process_name}: {selected_host} (E_Q={cost_ms:.2f} ms)")
 
         # Applica decisione
-        self._residual[selected_host] -= delta_needed
+        self._residual[selected_host] -= delta_needed if selected_host != "CN" else 0.0 # ASSUMPTION CN ha infinito parallelismo
 
         if self.merge_vms:
             # aggiorna voce unica per (host, process)
