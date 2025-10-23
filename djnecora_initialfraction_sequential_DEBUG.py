@@ -215,7 +215,7 @@ def plot_results():
             ax,
             data,
             column_labels=[bold(f"I={int(i*100)}\\%") for i in initial_fractions],
-            group_by_rows=True,
+            group_by_columns=True,
             colors=color,
             hatches=hatches,
             edgecolor="black",

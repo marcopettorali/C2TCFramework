@@ -164,18 +164,18 @@ def draw_paths(graph, ax, src, dest):
 
 # GROUPED BAR PLOT
 def grouped_bar_plot(
-    fig: plt.Figure, ax: plt.Axes, data_matrix: dict, column_labels: list, group_by_rows=True, colors=None, hatches=None, capsize=4, bar_width=0.8, **kwargs_bar
+    fig: plt.Figure, ax: plt.Axes, data_matrix: dict, column_labels: list, group_by_columns=False, colors=None, hatches=None, capsize=4, bar_width=0.8, **kwargs_bar
 ):
     """
     This function creates a grouped bar plot from a 2D data matrix dict.
     Each value should be a tuple (avg, err), and error bars are plotted.
     e.g. data_matrix = {'A': [(1,0.1), (2,0.2), (3,0.3)], 'B': [(4,0.2), (5,0.3), (6,0.4)]}
-    If group_by_rows is True, it groups the data by rows; otherwise, it groups by columns.
+    If group_by_columns is True, it groups the data by columns; otherwise (default), it groups by rows.
     """
     import numpy as np
 
     # extract data
-    if group_by_rows:
+    if group_by_columns:
         series_labels = column_labels
         group_labels = list(data_matrix.keys())
         data = np.array(list(data_matrix.values()))
@@ -219,5 +219,5 @@ def grouped_bar_plot(
 if __name__ == "__main__":
     fig, ax = plt.subplots()
     data_matrix = {"A": [(1, 0.1), (2, 0.2)], "B": [(4, 0.2), (5, 0.3)], "C": [(2, 0.1), (3, 0.2)]}
-    grouped_bar_plot(fig, ax, data_matrix, column_labels=["G1", "G2"], group_by_rows=True, hatches=["/", "x", "\\"], colors=["red", "blue", "green"])
+    grouped_bar_plot(fig, ax, data_matrix, column_labels=["G1", "G2"], group_by_columns=True, hatches=["/", "x", "\\"], colors=["red", "blue", "green"])
     plt.show()
