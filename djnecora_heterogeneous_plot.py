@@ -4,7 +4,7 @@ from utils.logging import print
 
 SCENARIOS = ["scenario1_het1", "scenario1_het2", "scenario1_het3", "scenario1_hom"]
 JNECORA_RESULTS = [67, 80, 80, 74]
-ALGORITHM = "DJ-NECORA.lazy_splitting.first_fit"
+ALGORITHM = "DJ-NECORA.lazy_splitting.worst_fit" #"DJ-NECORA.lazy_splitting.first_fit"
 
 # LOAD DATA
 data_dict = {}
@@ -47,6 +47,7 @@ grouped_bar_plot(
     hatches=["", "o", "x"],
     colors=[color] * len(SCENARIOS),
     edgecolor="black",
+    group_by_columns=True,
 )
 # Add JNECORA results
 
